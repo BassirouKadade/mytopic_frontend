@@ -25,7 +25,11 @@ export function AgendaTemplate(props: SlideTemplateProps) {
     <TemplateCanvas {...props}>
       <SlideHeader slide={props.slide} eyebrow="Structure" />
       <div className="mt-5 flex min-h-0 flex-1 items-start overflow-y-auto pr-1">
-        <div className={useTwoColumns ? "grid w-full gap-6 md:grid-cols-2" : "w-full"}>
+        <div
+          className={
+            useTwoColumns ? "grid w-full gap-6 md:grid-cols-2" : "w-full"
+          }
+        >
           <ol className="space-y-2">
             {leftColumnItems.map((item, index) => (
               <li
@@ -35,7 +39,7 @@ export function AgendaTemplate(props: SlideTemplateProps) {
                 <span className="pt-0.5 text-sm font-semibold text-slate-400">
                   {String(index + 1).padStart(2, "0")}
                 </span>
-                <p className="text-[clamp(13px,1.5vw,17px)] font-semibold leading-[1.25] tracking-[-0.01em] text-slate-800">
+                <p className="text-[clamp(13px,1.5vw,17px)] font-semibold leading-tight tracking-[-0.01em] text-slate-800">
                   {item}
                 </p>
               </li>
@@ -50,9 +54,12 @@ export function AgendaTemplate(props: SlideTemplateProps) {
                   className="flex items-start gap-3 border-b border-slate-200/80 pb-2"
                 >
                   <span className="pt-0.5 text-sm font-semibold text-slate-400">
-                    {String(index + leftColumnItems.length + 1).padStart(2, "0")}
+                    {String(index + leftColumnItems.length + 1).padStart(
+                      2,
+                      "0",
+                    )}
                   </span>
-                  <p className="text-[clamp(13px,1.5vw,17px)] font-semibold leading-[1.25] tracking-[-0.01em] text-slate-800">
+                  <p className="text-[clamp(13px,1.5vw,17px)] font-semibold leading-tight tracking-[-0.01em] text-slate-800">
                     {item}
                   </p>
                 </li>

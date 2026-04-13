@@ -123,7 +123,7 @@ const RAW_URL_PATTERN = /\b(?:https?:\/\/|www\.)\S+/gi;
 const DOMAIN_REFERENCE_PATTERN = /\[(?:[a-z0-9-]+\.)+[a-z]{2,}\]/gi;
 const URL_PAREN_PATTERN = /\((?:https?:\/\/|www\.)[^)]+\)/gi;
 const SOURCE_TAIL_PATTERN =
-  /\s*(?:\(|\[)?(?:source|sources?|reference|references?|selon)\s*[:\-][^)\]]*(?:\)|\])?/gi;
+  /\s*(?:\(|\[)?(?:source|sources?|reference|references?|selon)\s*[:-][^)\]]*(?:\)|\])?/gi;
 
 export function sanitizeDisplayText(value: string): string {
   return value
