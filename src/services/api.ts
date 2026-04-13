@@ -1,7 +1,5 @@
-import axios from "axios";
+import { apiClient } from "@/services/http";
 
-const API_BASE =
-  import.meta.env.VITE_API_BASE_URL?.trim() || "http://localhost:8000/api/v1";
 const DEFAULT_PRESENTATION_THEME = "editorial-light";
 const DEFAULT_SCHEMA_VERSION = "2026-04";
 
@@ -75,17 +73,23 @@ function normalizeSlide(slide: Partial<Slide>, index: number): Slide {
     : [];
 
   return {
-    slide_number: Number.isInteger(slide.slide_number) && (slide.slide_number ?? 0) > 0
-      ? (slide.slide_number as number)
-      : index + 1,
+    slide_number:
+      Number.isInteger(slide.slide_number) && (slide.slide_number ?? 0) > 0
+        ? (slide.slide_number as number)
+        : index + 1,
     slide_type: (slide.slide_type as SlideType) ?? "content",
-    semantic_type: String(slide.semantic_type ?? "").trim() || "content.paragraph",
-    layout_variant: String(slide.layout_variant ?? "").trim() || "text-left-accent",
+    semantic_type:
+      String(slide.semantic_type ?? "").trim() || "content.paragraph",
+    layout_variant:
+      String(slide.layout_variant ?? "").trim() || "text-left-accent",
     density: (slide.density as SlideDensity) ?? "balanced",
     title: String(slide.title ?? "").trim() || `Slide ${index + 1}`,
     purpose: String(slide.purpose ?? "").trim(),
     content_format: (slide.content_format as ContentFormat) ?? "paragraph",
-    main_content: content.length > 0 ? content : [String(slide.purpose ?? "").trim() || "Content"],
+    main_content:
+      content.length > 0
+        ? content
+        : [String(slide.purpose ?? "").trim() || "Content"],
     speaker_notes: String(slide.speaker_notes ?? "").trim(),
     suggested_visual:
       slide.suggested_visual === null || slide.suggested_visual === undefined
@@ -106,14 +110,17 @@ function normalizePresentation(payload: Partial<Presentation>): Presentation {
   const rawSlides = Array.isArray(payload.slides) ? payload.slides : [];
 
   return {
-    schema_version: String(payload.schema_version ?? "").trim() || DEFAULT_SCHEMA_VERSION,
+    schema_version:
+      String(payload.schema_version ?? "").trim() || DEFAULT_SCHEMA_VERSION,
     theme: String(payload.theme ?? "").trim() || DEFAULT_PRESENTATION_THEME,
     language: String(payload.language ?? "").trim() || "English",
     presentation_title:
-      String(payload.presentation_title ?? "").trim() || "Generated presentation",
+      String(payload.presentation_title ?? "").trim() ||
+      "Generated presentation",
     presentation_subtitle: String(payload.presentation_subtitle ?? "").trim(),
     target_audience: String(payload.target_audience ?? "").trim() || "General",
-    presentation_goal: String(payload.presentation_goal ?? "").trim() || "inform",
+    presentation_goal:
+      String(payload.presentation_goal ?? "").trim() || "inform",
     tone: String(payload.tone ?? "").trim() || "professional",
     research_used: Boolean(payload.research_used),
     sources: Array.isArray(payload.sources)
@@ -133,9 +140,9 @@ function normalizePresentation(payload: Partial<Presentation>): Presentation {
  */
 export async function generatePresentation(
   topic: string,
-  language?: string
+  language?: string,
 ): Promise<Presentation> {
-  const res = await axios.post<Presentation>(`${API_BASE}/presentations/generate`, {
+  const res = await apiClient.post<Presentation>("/presentations/generate", {
     topic,
     language: language || undefined,
   });

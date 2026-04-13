@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { usePresentationStore } from "../store/presentationStore";
 import {
   Layers,
-  Loader2,
   Sparkles,
   Palette,
   LayoutList,
@@ -12,6 +11,8 @@ import {
   Settings2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
+import { UserProfileMenu } from "@/components/auth/UserProfileMenu";
 import { motion } from "framer-motion";
 
 const easeCurve: [number, number, number, number] = [0.25, 0.46, 0.45, 0.94];
@@ -83,6 +84,10 @@ export default function GeneratorPage() {
               Archives
             </button>
           </nav>
+        </div>
+
+        <div className="flex items-center">
+          <UserProfileMenu />
         </div>
       </header>
 
@@ -172,7 +177,7 @@ export default function GeneratorPage() {
               >
                 {loading ? (
                   <>
-                    <Loader2 className="size-4 animate-spin" />
+                    <Spinner className="size-4" />
                     <span>Génération en cours...</span>
                   </>
                 ) : (

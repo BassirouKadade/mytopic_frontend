@@ -16,7 +16,11 @@ const fadeUp = {
   visible: (i: number) => ({
     opacity: 1,
     y: 0,
-    transition: { delay: i * 0.1, duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] as [number, number, number, number] },
+    transition: {
+      delay: i * 0.1,
+      duration: 0.5,
+      ease: [0.25, 0.46, 0.45, 0.94] as [number, number, number, number],
+    },
   }),
 };
 
@@ -44,7 +48,9 @@ export default function HomePage() {
               size="sm"
               className="text-muted-foreground hover:text-foreground"
               onClick={() => {
-                document.getElementById("features")?.scrollIntoView({ behavior: "smooth" });
+                document
+                  .getElementById("features")
+                  ?.scrollIntoView({ behavior: "smooth" });
               }}
             >
               Fonctionnalites
@@ -54,17 +60,19 @@ export default function HomePage() {
               size="sm"
               className="text-muted-foreground hover:text-foreground"
               onClick={() => {
-                document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" });
+                document
+                  .getElementById("how-it-works")
+                  ?.scrollIntoView({ behavior: "smooth" });
               }}
             >
               Comment ca marche
             </Button>
             <Button
               size="sm"
-              onClick={() => navigate("/generate")}
+              onClick={() => navigate("/auth")}
               className="rounded-lg px-4 shadow-sm shadow-primary/20 cursor-pointer"
             >
-              Commencer
+              Se connecter
               <ArrowRight className="size-3.5 ml-1" />
             </Button>
           </div>
@@ -97,7 +105,11 @@ export default function HomePage() {
           variants={stagger}
         >
           {/* Badge */}
-          <motion.div variants={fadeUp} custom={0} className="flex justify-center">
+          <motion.div
+            variants={fadeUp}
+            custom={0}
+            className="flex justify-center"
+          >
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-accent/60 text-accent-foreground border border-accent-foreground/10 rounded-full text-xs font-semibold tracking-wide">
               <Sparkles className="size-3.5" />
               Propulse par l'IA
@@ -123,8 +135,8 @@ export default function HomePage() {
             custom={2}
             className="text-lg sm:text-xl text-muted-foreground max-w-lg mx-auto leading-relaxed"
           >
-            Entrez un sujet, notre IA genere une presentation structuree
-            et professionnelle, prete a etre presentee.
+            Entrez un sujet, notre IA genere une presentation structuree et
+            professionnelle, prete a etre presentee.
           </motion.p>
 
           {/* CTA */}
@@ -135,15 +147,15 @@ export default function HomePage() {
           >
             <Button
               size="lg"
-              onClick={() => navigate("/generate")}
+              onClick={() => navigate("/auth")}
               className="relative text-sm px-10 py-7 rounded-2xl font-semibold shadow-xl shadow-primary/25 cursor-pointer transition-all duration-300 hover:shadow-2xl hover:shadow-primary/30 hover:scale-[1.02] active:scale-[0.98]"
             >
-              Commencer gratuitement
+              Se connecter
               <ArrowRight className="size-4 ml-2" />
             </Button>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <CheckCircle2 className="size-4 text-primary" />
-              Aucune inscription requise
+              Inscription rapide: email + mot de passe
             </div>
           </motion.div>
         </motion.div>
@@ -153,7 +165,11 @@ export default function HomePage() {
           className="mt-20 md:mt-24 w-full max-w-4xl px-4"
           initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5, duration: 0.7, ease: [0.25, 0.46, 0.45, 0.94] }}
+          transition={{
+            delay: 0.5,
+            duration: 0.7,
+            ease: [0.25, 0.46, 0.45, 0.94],
+          }}
         >
           <div className="relative">
             {/* Glow behind mockup */}
@@ -225,7 +241,8 @@ export default function HomePage() {
               custom={2}
               className="text-muted-foreground max-w-md mx-auto"
             >
-              Une suite d'outils intelligents pour creer des presentations percutantes en un temps record.
+              Une suite d'outils intelligents pour creer des presentations
+              percutantes en un temps record.
             </motion.p>
           </motion.div>
 
@@ -331,7 +348,9 @@ export default function HomePage() {
                 custom={i}
                 className="relative text-center space-y-4"
               >
-                <div className="text-5xl font-black text-primary/10 mb-2">{s.step}</div>
+                <div className="text-5xl font-black text-primary/10 mb-2">
+                  {s.step}
+                </div>
                 <div className="inline-flex items-center justify-center size-14 rounded-2xl bg-primary/10 text-primary mx-auto">
                   <s.icon className="size-6" />
                 </div>
@@ -372,15 +391,16 @@ export default function HomePage() {
                 custom={1}
                 className="text-muted-foreground max-w-md mx-auto"
               >
-                Rejoignez les utilisateurs qui creent des presentations professionnelles en quelques secondes.
+                Rejoignez les utilisateurs qui creent des presentations
+                professionnelles en quelques secondes.
               </motion.p>
               <motion.div variants={fadeUp} custom={2} className="pt-2">
                 <Button
                   size="lg"
-                  onClick={() => navigate("/generate")}
+                  onClick={() => navigate("/auth")}
                   className="text-sm px-10 py-7 rounded-2xl font-semibold shadow-xl shadow-primary/25 cursor-pointer transition-all duration-300 hover:shadow-2xl hover:shadow-primary/30 hover:scale-[1.02] active:scale-[0.98]"
                 >
-                  Commencer gratuitement
+                  Se connecter
                   <ArrowRight className="size-4 ml-2" />
                 </Button>
               </motion.div>
@@ -399,7 +419,8 @@ export default function HomePage() {
             <span className="text-sm font-semibold">MyTopic</span>
           </div>
           <p className="text-xs text-muted-foreground">
-            &copy; {new Date().getFullYear()} MyTopic &mdash; AI Presentation Generator
+            &copy; {new Date().getFullYear()} MyTopic &mdash; AI Presentation
+            Generator
           </p>
         </div>
       </footer>

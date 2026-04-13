@@ -11,6 +11,7 @@ import {
 import { SLIDE_ASPECT_RATIO } from "@/presentation/primitives";
 import { SlideRenderer } from "@/presentation/SlideRenderer";
 import { Button } from "@/components/ui/button";
+import { UserProfileMenu } from "@/components/auth/UserProfileMenu";
 import { cn } from "@/lib/utils";
 import { usePresentationStore } from "@/store/presentationStore";
 
@@ -36,9 +37,7 @@ export default function PresentationPage() {
         setCurrentSlide(Math.max(0, presentation.slides.length - 1));
       }
       if (event.key === "ArrowRight") {
-        setCurrentSlide((v) =>
-          Math.min(presentation.slides.length - 1, v + 1),
-        );
+        setCurrentSlide((v) => Math.min(presentation.slides.length - 1, v + 1));
       }
       if (event.key === "ArrowLeft") {
         setCurrentSlide((v) => Math.max(0, v - 1));
@@ -131,6 +130,7 @@ export default function PresentationPage() {
             <Download className="size-4" />
             <span className="inline">Exporter</span>
           </Button>
+          <UserProfileMenu avatarOnly />
         </div>
       </header>
 
@@ -214,40 +214,40 @@ export default function PresentationPage() {
                 className="mx-auto flex w-fit items-center justify-start gap-1.5 overflow-x-auto overflow-y-visible px-1 pt-1 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 style={{ scrollbarWidth: "none" }}
               >
-              {slides.map((item, index) => (
-                <button
-                  key={`${item.slide_number}-${item.title}`}
-                  onClick={() => setCurrentSlide(index)}
-                  aria-label={`Aller a la slide ${index + 1}`}
-                  className={cn(
-                    "relative shrink-0 rounded-lg p-[2px] transition-all duration-150 cursor-pointer text-left outline-none",
-                    index === safeCurrentSlide
-                      ? "ring-2 ring-primary ring-offset-1 ring-offset-background"
-                      : "opacity-80 hover:opacity-100 hover:ring-1 hover:ring-border/70 hover:ring-offset-1 hover:ring-offset-background",
-                  )}
-                >
-                  <div
-                    className="w-[98px] rounded-md border border-border/40 bg-white overflow-hidden"
-                    style={{ aspectRatio: SLIDE_ASPECT_RATIO }}
+                {slides.map((item, index) => (
+                  <button
+                    key={`${item.slide_number}-${item.title}`}
+                    onClick={() => setCurrentSlide(index)}
+                    aria-label={`Aller a la slide ${index + 1}`}
+                    className={cn(
+                      "relative shrink-0 rounded-lg p-[2px] transition-all duration-150 cursor-pointer text-left outline-none",
+                      index === safeCurrentSlide
+                        ? "ring-2 ring-primary ring-offset-1 ring-offset-background"
+                        : "opacity-80 hover:opacity-100 hover:ring-1 hover:ring-border/70 hover:ring-offset-1 hover:ring-offset-background",
+                    )}
                   >
-                    <div className="h-full flex flex-col justify-between p-2">
-                      <div className="space-y-0.5">
-                        <div className="h-[3px] w-8 rounded-full bg-slate-800/70" />
-                        <div className="h-[2px] w-12 rounded-full bg-slate-300/80" />
-                        <div className="h-[2px] w-6 rounded-full bg-slate-200/80" />
-                      </div>
-                      <div className="space-y-1">
-                        <span className="block text-[7px] font-semibold text-muted-foreground leading-none">
-                          {index + 1}
-                        </span>
-                        <span className="block text-[7px] leading-none text-slate-500 truncate max-w-[78px]">
-                          {item.title}
-                        </span>
+                    <div
+                      className="w-[98px] rounded-md border border-border/40 bg-white overflow-hidden"
+                      style={{ aspectRatio: SLIDE_ASPECT_RATIO }}
+                    >
+                      <div className="h-full flex flex-col justify-between p-2">
+                        <div className="space-y-0.5">
+                          <div className="h-[3px] w-8 rounded-full bg-slate-800/70" />
+                          <div className="h-[2px] w-12 rounded-full bg-slate-300/80" />
+                          <div className="h-[2px] w-6 rounded-full bg-slate-200/80" />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="block text-[7px] font-semibold text-muted-foreground leading-none">
+                            {index + 1}
+                          </span>
+                          <span className="block text-[7px] leading-none text-slate-500 truncate max-w-[78px]">
+                            {item.title}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
