@@ -204,7 +204,7 @@ export function MiniDiagram({ mode, items, className }: MiniDiagramProps) {
     <div
       ref={ref}
       className={cn(
-        "relative min-h-[210px] overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/80 shadow-[0_18px_40px_-24px_rgba(15,23,42,0.2)]",
+        "relative min-h-52.5 overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/80 shadow-[0_18px_40px_-24px_rgba(15,23,42,0.2)]",
         className,
       )}
     >
