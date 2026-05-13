@@ -7,6 +7,9 @@ const HomePage = lazy(() => import("./pages/HomePage"));
 const GeneratorPage = lazy(() => import("./pages/GeneratorPage"));
 const PresentationPage = lazy(() => import("./pages/PresentationPage"));
 const CollectionsPage = lazy(() => import("./pages/CollectionsPage"));
+const AIProvidersSettingsPage = lazy(
+  () => import("./pages/AIProvidersSettingsPage"),
+);
 const AuthPage = lazy(() => import("./pages/AuthPage"));
 
 function AppRoutes() {
@@ -27,6 +30,7 @@ function AppRoutes() {
       <Route element={<RequireAuth />}>
         <Route path="/generate" element={<GeneratorPage />} />
         <Route path="/collections" element={<CollectionsPage />} />
+        <Route path="/settings/ai-providers" element={<AIProvidersSettingsPage />} />
         <Route path="/presentation" element={<PresentationPage />} />
         <Route
           path="/presentation/:presentationId"

@@ -24,22 +24,22 @@ const HEIGHT = 900;
 
 const baseTitle = {
   color: "#0f172a",
-  fontSize: 66,
+  fontSize: 72,
   fontFamily: "Geist Variable, sans-serif",
-  fontWeight: 800,
+  fontWeight: 700,
   fontStyle: "normal" as const,
   align: "left" as const,
-  lineHeight: 1.1,
+  lineHeight: 1.08,
 };
 
 const baseBody = {
-  color: "#334155",
-  fontSize: 30,
+  color: "#111827",
+  fontSize: 34,
   fontFamily: "Geist Variable, sans-serif",
-  fontWeight: 500,
+  fontWeight: 400,
   fontStyle: "normal" as const,
   align: "left" as const,
-  lineHeight: 1.3,
+  lineHeight: 1.18,
 };
 
 function text(
@@ -78,9 +78,9 @@ function background(): BackgroundSlideElement {
     locked: true,
     visible: true,
     opacity: 1,
-    fill: "#f8fafc",
-    accent: "#e2e8f0",
-    pattern: "dots",
+    fill: "#ffffff",
+    accent: "#ffffff",
+    pattern: "none",
   };
 }
 
@@ -196,16 +196,17 @@ export function createSceneFromTemplate(
     elements.push(
       text("title", 1, {
         text: "Titre de presentation",
-        x: 120,
-        y: 230,
-        width: 1180,
+        x: 180,
+        y: 250,
+        width: 1120,
         ...baseTitle,
       }),
       text("subtitle", 2, {
         text: "Sous-titre ou promesse de valeur",
-        x: 120,
-        y: 360,
+        x: 180,
+        y: 440,
         width: 960,
+        fontSize: 32,
       }),
     );
   }
@@ -214,17 +215,18 @@ export function createSceneFromTemplate(
     elements.push(
       text("title", 1, {
         text: "Titre de section",
-        x: 120,
-        y: 86,
-        width: 1120,
+        x: 170,
+        y: 92,
+        width: 1160,
         ...baseTitle,
-        fontSize: 60,
+        fontSize: 64,
       }),
       text("content", 2, {
         text: "Ajoutez votre contenu principal ici.",
-        x: 120,
-        y: 250,
-        width: 1200,
+        x: 170,
+        y: 255,
+        width: 1120,
+        fontSize: 36,
       }),
     );
   }
@@ -233,11 +235,11 @@ export function createSceneFromTemplate(
     elements.push(
       text("title", 1, {
         text: "Titre + deux colonnes",
-        x: 120,
-        y: 86,
+        x: 170,
+        y: 92,
         width: 1120,
         ...baseTitle,
-        fontSize: 58,
+        fontSize: 62,
       }),
       columns("columns-2", 2, 2),
     );
@@ -247,11 +249,11 @@ export function createSceneFromTemplate(
     elements.push(
       text("title", 1, {
         text: "Comparaison sur trois colonnes",
-        x: 120,
-        y: 86,
+        x: 170,
+        y: 92,
         width: 1240,
         ...baseTitle,
-        fontSize: 58,
+        fontSize: 62,
       }),
       columns("columns-3", 2, 3),
     );
@@ -261,26 +263,26 @@ export function createSceneFromTemplate(
     elements.push(
       text("title", 1, {
         text: "Visuel + texte",
-        x: 120,
-        y: 86,
+        x: 170,
+        y: 92,
         width: 1080,
         ...baseTitle,
-        fontSize: 58,
+        fontSize: 62,
       }),
       media("image", 2, {
-        x: 120,
-        y: 230,
-        width: 680,
-        height: 520,
+        x: 105,
+        y: 70,
+        width: 560,
+        height: 760,
         mediaKind: "image",
         alt: "Illustration",
       }),
       text("caption", 3, {
         text: "Narration, contexte et details cles du visuel.",
-        x: 860,
+        x: 760,
         y: 260,
-        width: 620,
-        fontSize: 32,
+        width: 650,
+        fontSize: 36,
       }),
     );
   }
@@ -312,11 +314,11 @@ export function createSceneFromTemplate(
     elements.push(
       text("title", 1, {
         text: "Synthese tabulaire",
-        x: 120,
-        y: 86,
+        x: 170,
+        y: 92,
         width: 1080,
         ...baseTitle,
-        fontSize: 56,
+        fontSize: 60,
       }),
       table("table", 2),
     );
@@ -326,11 +328,11 @@ export function createSceneFromTemplate(
     elements.push(
       text("title", 1, {
         text: "Indicateurs et tendances",
-        x: 120,
-        y: 86,
+        x: 170,
+        y: 92,
         width: 1100,
         ...baseTitle,
-        fontSize: 56,
+        fontSize: 60,
       }),
       chart("chart", 2),
     );
@@ -340,7 +342,7 @@ export function createSceneFromTemplate(
     version: "1.0",
     width: WIDTH,
     height: HEIGHT,
-    background: "#f8fafc",
+    background: "#ffffff",
     elements: elements.map((item, index) => ({ ...item, zIndex: index })),
   };
 }

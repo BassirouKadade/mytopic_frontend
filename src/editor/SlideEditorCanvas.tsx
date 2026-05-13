@@ -143,9 +143,14 @@ export function SlideEditorCanvas({
       const node = sceneRef.current;
       if (!node) return { x: 0, y: 0 };
       const r = node.getBoundingClientRect();
-      return { x: (cx - r.left) / scale, y: (cy - r.top) / scale };
+      const renderedScaleX = r.width / W;
+      const renderedScaleY = r.height / H;
+      return {
+        x: (cx - r.left) / Math.max(0.0001, renderedScaleX),
+        y: (cy - r.top) / Math.max(0.0001, renderedScaleY),
+      };
     },
-    [scale],
+    [H, W],
   );
 
   const dragR = useRef<DragInfo | null>(null);
@@ -663,8 +668,8 @@ export function SlideEditorCanvas({
                 style={{
                   color: el.titleColor,
                   fontWeight: 700,
-                  fontSize: 22,
-                  marginBottom: 8,
+                  fontSize: 30,
+                  marginBottom: 14,
                 }}
               >
                 {column[0] ?? `Colonne ${index + 1}`}
@@ -672,8 +677,8 @@ export function SlideEditorCanvas({
               <div
                 style={{
                   color: el.textColor,
-                  fontSize: 20,
-                  lineHeight: 1.35,
+                  fontSize: 25,
+                  lineHeight: 1.28,
                   whiteSpace: "pre-wrap",
                 }}
               >

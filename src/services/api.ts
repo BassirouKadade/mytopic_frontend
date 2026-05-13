@@ -233,6 +233,48 @@ export interface FavoriteImageAsset {
   updated_at: string;
 }
 
+export type ProviderType =
+  | "openai"
+  | "ollama"
+  | "openai_compatible"
+  | "custom";
+
+export interface AIProviderConfig {
+  id: number;
+  providerName: string;
+  providerType: ProviderType;
+  baseUrl: string;
+  hasApiKey: boolean;
+  modelName: string;
+  temperature: number;
+  maxTokens: number;
+  timeoutMs: number;
+  isDefault: boolean;
+  isActive: boolean;
+  lastError: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AIProviderConfigPayload {
+  providerName: string;
+  providerType: ProviderType;
+  baseUrl?: string;
+  apiKey?: string;
+  modelName: string;
+  temperature: number;
+  maxTokens: number;
+  timeoutMs: number;
+  isDefault?: boolean;
+  isActive?: boolean;
+}
+
+export interface ConnectionResult {
+  ok: boolean;
+  message: string;
+  details?: Record<string, unknown> | null;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -1177,4 +1219,45 @@ export async function saveFavoriteImageAsset(payload: {
 
 export async function deleteFavoriteImageAsset(assetId: string): Promise<void> {
   await apiClient.delete(`/presentations/uploads/${assetId}`);
+}
+
+export async function listAIProviders(): Promise<AIProviderConfig[]> {
+  const res = await apiClient.get<AIProviderConfig[]>("/ai/providers");
+  return res.data;
+}
+
+export async function createAIProvider(
+  payload: AIProviderConfigPayload,
+): Promise<AIProviderConfig> {
+  const res = await apiClient.post<AIProviderConfig>("/ai/providers", payload);
+  return res.data;
+}
+
+export async function updateAIProvider(
+  id: number,
+  payload: Partial<AIProviderConfigPayload>,
+): Promise<AIProviderConfig> {
+  const res = await apiClient.patch<AIProviderConfig>(
+    `/ai/providers/${id}`,
+    payload,
+  );
+  return res.data;
+}
+
+export async function deleteAIProvider(id: number): Promise<void> {
+  await apiClient.delete(`/ai/providers/${id}`);
+}
+
+export async function testAIProvider(id: number): Promise<ConnectionResult> {
+  const res = await apiClient.post<ConnectionResult>(`/ai/providers/${id}/test`);
+  return res.data;
+}
+
+export async function setDefaultAIProvider(
+  id: number,
+): Promise<AIProviderConfig> {
+  const res = await apiClient.post<AIProviderConfig>(
+    `/ai/providers/${id}/default`,
+  );
+  return res.data;
 }

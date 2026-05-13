@@ -5,7 +5,7 @@ import { useControls } from "react-zoom-pan-pinch";
 const ZOOM_PRESETS = [25, 50, 75, 100, 125, 150, 200, 300];
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 3;
-const ZOOM_STEP = 0.1;
+const ZOOM_STEP = 0.25;
 
 interface ZoomControlsProps {
   zoom: number;
@@ -17,15 +17,15 @@ export function ZoomControls({ zoom }: ZoomControlsProps) {
   const percent = Math.round(zoom * 100);
 
   const handleZoomIn = useCallback(() => {
-    zoomIn(ZOOM_STEP, 150);
+    zoomIn(ZOOM_STEP, 120);
   }, [zoomIn]);
 
   const handleZoomOut = useCallback(() => {
-    zoomOut(ZOOM_STEP, 150);
+    zoomOut(ZOOM_STEP, 120);
   }, [zoomOut]);
 
   const handleReset = useCallback(() => {
-    centerView(1, 150);
+    centerView(1, 160);
   }, [centerView]);
 
   const handlePreset = useCallback(
@@ -57,28 +57,33 @@ export function ZoomControls({ zoom }: ZoomControlsProps) {
 
   return (
     <div
-      className="absolute bottom-4 right-4 z-30 flex items-center gap-0.5 rounded-lg border border-white/60 bg-white/90 px-1 py-0.5 shadow-lg backdrop-blur-xl"
+      className="absolute bottom-4 right-4 z-50 flex items-center gap-1 rounded-lg border border-white/60 bg-white/95 px-1.5 py-1 shadow-lg backdrop-blur-xl"
       style={{
         boxShadow:
           "0 2px 12px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)",
       }}
       onMouseDown={(e) => e.stopPropagation()}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onWheel={(e) => e.stopPropagation()}
     >
       {/* zoom out */}
       <button
         onClick={handleZoomOut}
         disabled={zoom <= MIN_ZOOM}
-        className="flex size-7 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-30 cursor-pointer transition-colors"
+        className="flex size-9 items-center justify-center rounded-md text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-30"
         aria-label="Dezoomer"
       >
-        <Minus className="size-3.5" strokeWidth={2} />
+        <Minus className="size-4" strokeWidth={2} />
       </button>
 
       {/* percentage label / preset picker */}
       <div className="relative" ref={presetsRef}>
         <button
           onClick={() => setShowPresets((v) => !v)}
-          className="min-w-10.5 rounded-md px-1.5 py-1 text-center text-[11px] font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer transition-colors tabular-nums"
+          className="min-w-14 rounded-md px-2 py-2 text-center text-sm font-semibold tabular-nums text-slate-700 transition-colors hover:bg-slate-100"
         >
           {percent}%
         </button>
@@ -112,23 +117,23 @@ export function ZoomControls({ zoom }: ZoomControlsProps) {
       <button
         onClick={handleZoomIn}
         disabled={zoom >= MAX_ZOOM}
-        className="flex size-7 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-30 cursor-pointer transition-colors"
+        className="flex size-9 items-center justify-center rounded-md text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-30"
         aria-label="Zoomer"
       >
-        <Plus className="size-3.5" strokeWidth={2} />
+        <Plus className="size-4" strokeWidth={2} />
       </button>
 
       {/* divider */}
-      <div className="mx-0.5 h-4 w-px bg-slate-200" />
+      <div className="mx-0.5 h-5 w-px bg-slate-200" />
 
       {/* fit / reset */}
       <button
         onClick={handleReset}
-        className="flex size-7 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 hover:text-slate-900 cursor-pointer transition-colors"
+        className="flex size-9 items-center justify-center rounded-md text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
         aria-label="Ajuster a l'ecran"
         title="Ajuster (100%)"
       >
-        <Maximize className="size-3.5" strokeWidth={2} />
+        <Maximize className="size-4" strokeWidth={2} />
       </button>
     </div>
   );

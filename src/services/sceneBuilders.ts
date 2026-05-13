@@ -1,4 +1,5 @@
 import type { Slide, EditorScene, SlideElement } from "@/services/api";
+import testImageUrl from "@/assets/image-test.jpeg";
 
 import {
   DEFAULT_SCENE_VERSION,
@@ -9,7 +10,6 @@ import {
   createListElement,
   createTableElement,
   createMediaElement,
-  createColumnsElement,
   createBackgroundElement,
 } from "@/services/api";
 
@@ -57,12 +57,211 @@ function ct(slide: Slide): Slide {
 
 type BuilderFn = (slide: Slide, index: number) => EditorScene;
 
+const SCENE_W = 1600;
+const SCENE_H = 900;
+const TITLE_COLOR = "#111827";
+const PRESENTATION_FONT = "Geist Variable, sans-serif";
+const NAVY = TITLE_COLOR;
+const GREEN = "#078354";
+const INK = "#111827";
+const BODY = "#374151";
+const MUTED = "#f4f4f5";
+const BLUE_DOT = "#174b83";
+
+function estimateLineCount(text: string, width: number, fontSize: number) {
+  const charsPerLine = Math.max(12, Math.floor(width / (fontSize * 0.52)));
+  return Math.max(1, Math.ceil(text.trim().length / charsPerLine));
+}
+
+function shouldKeepImage(semantic: string): boolean {
+  return (
+    semantic === "cover.title" ||
+    semantic.startsWith("visual.") ||
+    semantic === "business.product_feature"
+  );
+}
+
+function addFooter(els: SlideElement[], index: number): void {
+  els.push(
+    createTextElement(`page-${index}`, `${index + 1}`, 80, {
+      x: 1440,
+      y: 805,
+      width: 50,
+      height: 26,
+      fontSize: 18,
+      fontWeight: 500,
+      align: "center",
+      color: "#111827",
+    }),
+  );
+
+  [0, 1, 2].forEach((dot) => {
+    els.push(
+      createShapeElement(`dot-${index}-${dot}`, 81 + dot, {
+        x: 1410 + dot * 32,
+        y: 842,
+        width: 18,
+        height: 18,
+        shape: "ellipse",
+        fill: BLUE_DOT,
+        stroke: "transparent",
+        strokeWidth: 0,
+      }),
+    );
+  });
+}
+
+function addSoftRings(els: SlideElement[], index: number): void {
+  els.push(
+    createShapeElement(`ring-top-${index}`, 1, {
+      x: 1030,
+      y: -210,
+      width: 520,
+      height: 520,
+      shape: "ellipse",
+      fill: "transparent",
+      stroke: "#d7e6f2",
+      strokeWidth: 70,
+      opacity: 0.75,
+    }),
+    createShapeElement(`ring-bottom-${index}`, 2, {
+      x: 520,
+      y: 810,
+      width: 420,
+      height: 420,
+      shape: "ellipse",
+      fill: "transparent",
+      stroke: "#d7e6f2",
+      strokeWidth: 62,
+      opacity: 0.75,
+    }),
+  );
+}
+
+function compactText(items: string[], max = 4): string {
+  return items
+    .slice(0, max)
+    .map(stripBulletPrefix)
+    .join("\n");
+}
+
+function finalizeScene(
+  draft: EditorScene,
+  index: number,
+  semantic: string,
+): EditorScene {
+  const keepImage = shouldKeepImage(semantic);
+  let elements = draft.elements
+    .filter((element) => keepImage || element.type !== "media")
+    .map((element) => {
+      if (element.type === "background") {
+        return {
+          ...element,
+          fill: "#ffffff",
+          accent: "#ffffff",
+          pattern: "none" as const,
+        };
+      }
+      if (element.type === "media") {
+        return {
+          ...element,
+          src: element.src || testImageUrl,
+          alt: element.alt || "Image de test",
+        };
+      }
+      if (element.type === "text") {
+        const isMainTitle = element.id.startsWith("title-");
+        const keepSmall =
+          element.id.startsWith("page-") ||
+          element.id.startsWith("eyebrow-") ||
+          element.id.startsWith("attr-");
+        const fontSize = keepSmall
+          ? element.fontSize
+          : Math.max(element.fontSize, isMainTitle ? 54 : 24);
+        const lineHeight = element.lineHeight || 1.2;
+        const lineCount = estimateLineCount(element.text, element.width, fontSize);
+        const minHeight = Math.ceil(lineCount * fontSize * lineHeight + 14);
+        return {
+          ...element,
+          fontFamily: PRESENTATION_FONT,
+          color: isMainTitle ? TITLE_COLOR : element.color,
+          fontSize,
+          height: Math.max(element.height, minHeight),
+        };
+      }
+      if (element.type === "list") {
+        return {
+          ...element,
+          fontFamily: PRESENTATION_FONT,
+          fontSize: Math.max(element.fontSize, 28),
+          height: Math.max(element.height, 220),
+        };
+      }
+      if (element.type === "table") {
+        return {
+          ...element,
+          textColor: element.textColor || BODY,
+          fontSize: Math.max(element.fontSize, 26),
+        };
+      }
+      if (element.type === "shape" && element.label) {
+        return {
+          ...element,
+          fontSize: Math.max(element.fontSize, 20),
+        };
+      }
+      return element;
+    });
+
+  const titleElement = elements.find(
+    (element) => element.type === "text" && element.id.startsWith("title-"),
+  );
+  if (titleElement) {
+    const minContentY = titleElement.y + titleElement.height + 38;
+    elements = elements.map((element) => {
+      if (
+        element.id === titleElement.id ||
+        element.id.startsWith("page-") ||
+        element.id.startsWith("dot-") ||
+        element.y <= titleElement.y ||
+        element.y >= minContentY
+      ) {
+        return element;
+      }
+      return { ...element, y: minContentY };
+    });
+  }
+
+  if (!elements.some((element) => element.id === `page-${index}`)) {
+    addFooter(elements, index);
+  }
+
+  return {
+    ...draft,
+    background: "#ffffff",
+    elements: elements.map((element, elementIndex) => ({
+      ...element,
+      zIndex: elementIndex,
+    })),
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /*  Builder: Cover                                                     */
 /* ------------------------------------------------------------------ */
 
 function buildCoverScene(slide: Slide, index: number): EditorScene {
   const els: SlideElement[] = [];
+  const hasImage = shouldKeepImage(slide.semantic_type);
+  const titleX = hasImage ? 740 : 240;
+  const titleWidth = hasImage ? 720 : 1120;
+  const titleFont =
+    slide.title.length > 92 ? 52 : slide.title.length > 64 ? 60 : 70;
+  const titleLines = estimateLineCount(slide.title, titleWidth, titleFont);
+  const titleHeight = Math.min(320, Math.ceil(titleLines * titleFont * 1.18));
+  const titleY = titleLines >= 4 ? 235 : titleLines >= 3 ? 265 : 300;
+  const subtitleY = titleY + titleHeight + 42;
+  const metaY = subtitleY + (slide.purpose ? 92 : 34);
 
   els.push(
     createBackgroundElement(`bg-${index}`, 0, {
@@ -71,35 +270,57 @@ function buildCoverScene(slide: Slide, index: number): EditorScene {
       width: 1600,
       height: 900,
       fill: "#ffffff",
-      accent: "#0f766e",
-      pattern: "dots",
+      accent: "#ffffff",
+      pattern: "none",
     }),
   );
 
+  if (hasImage) {
+    els.push(
+      createMediaElement(`cover-media-${index}`, 1, {
+        x: 95,
+        y: 70,
+        width: 560,
+        height: 760,
+        mediaKind: "image",
+        fit: "cover",
+        borderRadius: 0,
+        src: testImageUrl,
+        alt: slide.suggested_visual ?? "Image de test",
+        background: "#e5e7eb",
+      }),
+    );
+  }
+
   els.push(
-    createShapeElement(`bar-${index}`, 1, {
-      x: 0,
-      y: 0,
-      width: 1600,
-      height: 6,
+    createShapeElement(`tag-${index}`, 2, {
+      x: titleX,
+      y: 140,
+      width: 132,
+      height: 42,
       shape: "rect",
-      fill: "#0f766e",
-      cornerRadius: 0,
-      stroke: "transparent",
-      strokeWidth: 0,
+      fill: "#ffffff",
+      stroke: GREEN,
+      strokeWidth: 1.5,
+      cornerRadius: 2,
+      label: "PRESENTATION",
+      textColor: GREEN,
+      fontSize: 17,
+      fontWeight: 700,
     }),
   );
 
   els.push(
     createTextElement(`title-${index}`, slide.title, 2, {
-      x: 200,
-      y: 260,
-      width: 1200,
-      height: 140,
-      fontSize: 58,
-      fontWeight: 800,
-      align: "center",
-      color: "#0f172a",
+      x: titleX,
+      y: titleY,
+      width: titleWidth,
+      height: titleHeight,
+      fontSize: titleFont,
+      fontWeight: 500,
+      align: "left",
+      color: INK,
+      lineHeight: 1.16,
     }),
   );
 
@@ -107,47 +328,33 @@ function buildCoverScene(slide: Slide, index: number): EditorScene {
   if (subtitle) {
     els.push(
       createTextElement(`subtitle-${index}`, subtitle, 3, {
-        x: 280,
-        y: 420,
-        width: 1040,
+        x: titleX,
+        y: subtitleY,
+        width: hasImage ? 720 : 980,
         height: 80,
         fontSize: 26,
-        fontWeight: 500,
-        align: "center",
-        color: "#475569",
+        fontWeight: 400,
+        align: "left",
+        color: "#3f3f46",
       }),
     );
   }
 
   if (slide.main_content.length > 0) {
-    const meta = slide.main_content.slice(0, 3).join("  |  ");
+    const meta = slide.main_content.slice(0, 2).join("   |   ");
     els.push(
       createTextElement(`meta-${index}`, meta, 4, {
-        x: 300,
-        y: 530,
-        width: 1000,
+        x: titleX,
+        y: metaY,
+        width: hasImage ? 720 : 980,
         height: 50,
-        fontSize: 18,
+        fontSize: 22,
         fontWeight: 400,
-        align: "center",
-        color: "#94a3b8",
+        align: "left",
+        color: "#52525b",
       }),
     );
   }
-
-  els.push(
-    createShapeElement(`deco-${index}`, 5, {
-      x: 1320,
-      y: -50,
-      width: 280,
-      height: 280,
-      shape: "ellipse",
-      fill: "rgba(15,118,110,0.06)",
-      stroke: "transparent",
-      strokeWidth: 0,
-      opacity: 0.6,
-    }),
-  );
 
   return scene(els);
 }
@@ -160,44 +367,125 @@ function buildAgendaScene(slide: Slide, index: number): EditorScene {
   const els: SlideElement[] = [];
 
   els.push(
-    createTextElement(`eyebrow-${index}`, "STRUCTURE", 0, {
-      x: 100,
-      y: 36,
-      width: 200,
-      height: 30,
-      fontSize: 13,
-      fontWeight: 600,
-      color: "#94a3b8",
+    createBackgroundElement(`bg-${index}`, 0, {
+      x: 0,
+      y: 0,
+      width: SCENE_W,
+      height: SCENE_H,
+      fill: "#ffffff",
+      accent: "#ffffff",
+      pattern: "none",
+    }),
+  );
+
+  addSoftRings(els, index);
+
+  els.push(
+    createTextElement(`title-${index}`, "Sommaire", 5, {
+      x: 520,
+      y: 86,
+      width: 560,
+      height: 90,
+      fontSize: 74,
+      fontWeight: 400,
+      align: "center",
+      color: "#000000",
+      lineHeight: 1.05,
     }),
   );
 
   els.push(
-    createTextElement(`title-${index}`, slide.title, 1, {
-      x: 100,
-      y: 60,
-      width: 800,
-      height: 80,
-      fontSize: 44,
-      fontWeight: 800,
-      color: "#0f172a",
+    createShapeElement(`accent-a-${index}`, 6, {
+      x: 1260,
+      y: 96,
+      width: 90,
+      height: 5,
+      shape: "rect",
+      fill: GREEN,
+      stroke: "transparent",
+      strokeWidth: 0,
+      cornerRadius: 2,
+      rotation: -15,
+    }),
+    createShapeElement(`accent-b-${index}`, 7, {
+      x: 1256,
+      y: 116,
+      width: 90,
+      height: 5,
+      shape: "rect",
+      fill: GREEN,
+      stroke: "transparent",
+      strokeWidth: 0,
+      cornerRadius: 2,
+      rotation: 8,
+    }),
+    createShapeElement(`accent-c-${index}`, 8, {
+      x: 1254,
+      y: 138,
+      width: 82,
+      height: 5,
+      shape: "rect",
+      fill: GREEN,
+      stroke: "transparent",
+      strokeWidth: 0,
+      cornerRadius: 2,
+      rotation: 24,
     }),
   );
 
-  const items = getAgendaItems(slide);
-  els.push(
-    createListElement(`list-${index}`, 2, {
-      x: 100,
-      y: 160,
-      width: 1400,
-      height: 700,
-      ordered: true,
-      items,
-      fontSize: 26,
-      fontWeight: 600,
-      color: "#1e293b",
-      lineHeight: 1.6,
-    }),
+  const items = getAgendaItems(slide).slice(0, 8);
+  const left = items.slice(0, 5);
+  const right = items.slice(5, 8);
+  const rowH = 76;
+  const gap = 16;
+  const startY = 220;
+
+  [...left.map((item, i) => ({ item, i, col: 0 })), ...right.map((item, i) => ({ item, i: i + 5, col: 1 }))].forEach(
+    ({ item, i, col }) => {
+      const baseX = col === 0 ? 170 : 850;
+      const y = startY + (col === 0 ? i : i - 5) * (rowH + gap);
+      els.push(
+        createShapeElement(`agenda-num-${index}-${i}`, 10 + i * 3, {
+          x: baseX,
+          y,
+          width: 110,
+          height: rowH,
+          shape: "rect",
+          fill: MUTED,
+          stroke: "transparent",
+          strokeWidth: 0,
+          cornerRadius: 0,
+          label: String(i + 1).padStart(2, "0"),
+          textColor: "#111827",
+          fontSize: 27,
+          fontWeight: 400,
+        }),
+        createShapeElement(`agenda-label-bg-${index}-${i}`, 11 + i * 3, {
+          x: baseX + 126,
+          y,
+          width: 500,
+          height: rowH,
+          shape: "rect",
+          fill: MUTED,
+          stroke: "transparent",
+          strokeWidth: 0,
+          cornerRadius: 0,
+        }),
+        createTextElement(`agenda-label-${index}-${i}`, item, 12 + i * 3, {
+          x: baseX + 144,
+          y: y + 20,
+          width: 456,
+          height: 42,
+          fontSize: 27,
+          fontWeight: 400,
+          color: "#111827",
+          lineHeight: 1.15,
+        }),
+      );
+    },
   );
+
+  addFooter(els, index);
 
   return scene(els);
 }
@@ -208,6 +496,10 @@ function buildAgendaScene(slide: Slide, index: number): EditorScene {
 
 function buildSectionScene(slide: Slide, index: number): EditorScene {
   const els: SlideElement[] = [];
+  const titleFont =
+    slide.title.length > 70 ? 52 : slide.title.length > 46 ? 60 : 68;
+  const titleLines = estimateLineCount(slide.title, 1080, titleFont);
+  const titleHeight = Math.ceil(titleLines * titleFont * 1.12);
 
   els.push(
     createBackgroundElement(`bg-${index}`, 0, {
@@ -216,35 +508,22 @@ function buildSectionScene(slide: Slide, index: number): EditorScene {
       width: 1600,
       height: 900,
       fill: "#ffffff",
-      accent: "#0f766e",
+      accent: "#ffffff",
       pattern: "none",
     }),
   );
 
   els.push(
-    createShapeElement(`band-${index}`, 1, {
-      x: 0,
-      y: 340,
-      width: 1600,
-      height: 220,
-      shape: "rect",
-      fill: "#0f766e",
-      cornerRadius: 0,
-      stroke: "transparent",
-      strokeWidth: 0,
-    }),
-  );
-
-  els.push(
     createTextElement(`title-${index}`, slide.title, 2, {
-      x: 160,
-      y: 375,
-      width: 1280,
-      height: 100,
-      fontSize: 48,
+      x: 260,
+      y: 300,
+      width: 1080,
+      height: titleHeight,
+      fontSize: titleFont,
       fontWeight: 800,
       align: "center",
-      color: "#0f172a",
+      color: "#111827",
+      lineHeight: 1.12,
     }),
   );
 
@@ -252,10 +531,10 @@ function buildSectionScene(slide: Slide, index: number): EditorScene {
     els.push(
       createTextElement(`purpose-${index}`, slide.purpose, 3, {
         x: 240,
-        y: 485,
+        y: 300 + titleHeight + 42,
         width: 1120,
-        height: 60,
-        fontSize: 22,
+        height: 92,
+        fontSize: 28,
         fontWeight: 400,
         align: "center",
         color: "#475569",
@@ -274,46 +553,49 @@ function buildParagraphScene(slide: Slide, index: number): EditorScene {
   const els: SlideElement[] = [];
 
   els.push(
-    createTextElement(`title-${index}`, slide.title, 0, {
-      x: 100,
-      y: 60,
-      width: 1200,
-      height: 90,
-      fontSize: 44,
-      fontWeight: 800,
-      color: "#0f172a",
+    createBackgroundElement(`bg-${index}`, 0, {
+      x: 0,
+      y: 0,
+      width: SCENE_W,
+      height: SCENE_H,
+      fill: "#ffffff",
+      accent: "#ffffff",
+      pattern: "none",
     }),
   );
+
+  addSoftRings(els, index);
 
   els.push(
-    createShapeElement(`accent-${index}`, 1, {
-      x: 100,
-      y: 155,
-      width: 60,
-      height: 5,
-      shape: "rect",
-      fill: "#0f766e",
-      cornerRadius: 2,
-      stroke: "transparent",
-      strokeWidth: 0,
+    createTextElement(`title-${index}`, slide.title, 4, {
+      x: 170,
+      y: 210,
+      width: 980,
+      height: 130,
+      fontSize: 68,
+      fontWeight: 800,
+      color: NAVY,
+      lineHeight: 1.05,
     }),
   );
 
-  const paragraphs = getParagraphs(slide).slice(0, 4);
+  const paragraphs = getParagraphs(slide).slice(0, 3);
   paragraphs.forEach((p, i) => {
     els.push(
-      createTextElement(`para-${index}-${i}`, p, 2 + i, {
-        x: 100,
-        y: 190 + i * 160,
-        width: 1400,
-        height: 130,
-        fontSize: 26,
+      createTextElement(`para-${index}-${i}`, p, 5 + i, {
+        x: 175,
+        y: 365 + i * 122,
+        width: 820,
+        height: 105,
+        fontSize: 31,
         fontWeight: 400,
-        color: "#334155",
-        lineHeight: 1.5,
+        color: "#111111",
+        lineHeight: 1.18,
       }),
     );
   });
+
+  addFooter(els, index);
 
   return scene(els);
 }
@@ -328,28 +610,43 @@ function buildDefinitionScene(slide: Slide, index: number): EditorScene {
 
   const els: SlideElement[] = [];
   els.push(
-    createTextElement(`title-${index}`, slide.title, 0, {
-      x: 100,
-      y: 60,
-      width: 1200,
-      height: 80,
-      fontSize: 42,
-      fontWeight: 800,
-      color: "#0f172a",
+    createBackgroundElement(`bg-${index}`, 0, {
+      x: 0,
+      y: 0,
+      width: SCENE_W,
+      height: SCENE_H,
+      fill: "#ffffff",
+      accent: "#ffffff",
+      pattern: "none",
     }),
   );
 
-  const items = defs.slice(0, 5);
+  addSoftRings(els, index);
+
+  els.push(
+    createTextElement(`title-${index}`, slide.title, 4, {
+      x: 170,
+      y: 78,
+      width: 1160,
+      height: 96,
+      fontSize: 44,
+      fontWeight: 800,
+      color: "#111827",
+      lineHeight: 1.12,
+    }),
+  );
+
+  const items = defs.slice(0, 4);
   items.forEach((def, i) => {
     els.push(
-      createShapeElement(`term-${index}-${i}`, 1 + i * 2, {
-        x: 100,
-        y: 170 + i * 130,
-        width: 340,
-        height: 100,
+      createShapeElement(`term-${index}-${i}`, 5 + i * 3, {
+        x: 170,
+        y: 220 + i * 116,
+        width: 330,
+        height: 86,
         shape: "rect",
         fill: "#f1f5f9",
-        cornerRadius: 16,
+        cornerRadius: 8,
         stroke: "#e2e8f0",
         strokeWidth: 1,
         label: def.term,
@@ -357,19 +654,31 @@ function buildDefinitionScene(slide: Slide, index: number): EditorScene {
         fontSize: 18,
         fontWeight: 700,
       }),
-    );
-    els.push(
-      createTextElement(`expl-${index}-${i}`, def.explanation, 2 + i * 2, {
-        x: 470,
-        y: 185 + i * 130,
-        width: 1030,
-        height: 80,
-        fontSize: 22,
+      createShapeElement(`def-rule-${index}-${i}`, 6 + i * 3, {
+        x: 530,
+        y: 258 + i * 116,
+        width: 28,
+        height: 3,
+        shape: "rect",
+        fill: "#cbd5e1",
+        stroke: "transparent",
+        strokeWidth: 0,
+        cornerRadius: 2,
+      }),
+      createTextElement(`expl-${index}-${i}`, def.explanation, 7 + i * 3, {
+        x: 580,
+        y: 232 + i * 116,
+        width: 840,
+        height: 76,
+        fontSize: 25,
         fontWeight: 400,
         color: "#475569",
+        lineHeight: 1.16,
       }),
     );
   });
+
+  addFooter(els, index);
 
   return scene(els);
 }
@@ -466,32 +775,48 @@ function buildBulletListScene(slide: Slide, index: number): EditorScene {
   const ordered = semantic === "list.numbered";
 
   els.push(
-    createTextElement(`title-${index}`, slide.title, 0, {
-      x: 100,
-      y: 60,
-      width: 1200,
-      height: 80,
-      fontSize: 42,
+    createBackgroundElement(`bg-${index}`, 0, {
+      x: 0,
+      y: 0,
+      width: SCENE_W,
+      height: SCENE_H,
+      fill: "#ffffff",
+      accent: "#ffffff",
+      pattern: "none",
+    }),
+  );
+  addSoftRings(els, index);
+
+  els.push(
+    createTextElement(`title-${index}`, slide.title, 4, {
+      x: 170,
+      y: 90,
+      width: 1160,
+      height: 104,
+      fontSize: 56,
       fontWeight: 800,
-      color: "#0f172a",
+      color: NAVY,
+      lineHeight: 1.08,
     }),
   );
 
-  const items = slide.main_content.slice(0, 10).map(stripBulletPrefix);
+  const items = slide.main_content.slice(0, 7).map(stripBulletPrefix);
   els.push(
-    createListElement(`list-${index}`, 1, {
-      x: 100,
-      y: 170,
-      width: 1400,
-      height: 690,
+    createListElement(`list-${index}`, 5, {
+      x: 210,
+      y: 245,
+      width: 1120,
+      height: 560,
       ordered,
       items,
-      fontSize: 26,
+      fontSize: 34,
       fontWeight: 500,
-      color: "#1e293b",
-      lineHeight: 1.5,
+      color: "#111827",
+      lineHeight: 1.42,
     }),
   );
+
+  addFooter(els, index);
 
   return scene(els);
 }
@@ -504,32 +829,81 @@ function buildComparisonScene(slide: Slide, index: number): EditorScene {
   const els: SlideElement[] = [];
 
   els.push(
-    createTextElement(`title-${index}`, slide.title, 0, {
-      x: 100,
-      y: 60,
-      width: 1200,
-      height: 80,
-      fontSize: 42,
-      fontWeight: 800,
-      color: "#0f172a",
+    createBackgroundElement(`bg-${index}`, 0, {
+      x: 0,
+      y: 0,
+      width: SCENE_W,
+      height: SCENE_H,
+      fill: "#ffffff",
+      accent: "#ffffff",
+      pattern: "none",
+    }),
+  );
+
+  els.push(
+    createTextElement(`title-${index}`, slide.title, 1, {
+      x: 520,
+      y: 78,
+      width: 900,
+      height: 120,
+      fontSize: 48,
+      fontWeight: 400,
+      color: "#111827",
+      lineHeight: 1.15,
     }),
   );
 
   const items = getComparisonItems(slide).slice(0, 4);
-  const columns = items.map((item) => [item.title, item.description]);
+  const left = items.slice(0, Math.ceil(items.length / 2));
+  const right = items.slice(Math.ceil(items.length / 2));
 
-  els.push(
-    createColumnsElement(`cols-${index}`, 1, {
-      x: 100,
-      y: 170,
-      width: 1400,
-      height: 680,
-      columns,
-      gap: 32,
-      titleColor: "#0f172a",
-      textColor: "#475569",
-    }),
-  );
+  [
+    { label: "Arguments POUR", items: left, x: 520, color: "#38bdf8" },
+    { label: "Arguments CONTRE", items: right, x: 930, color: "#fb923c" },
+  ].forEach((col, colIndex) => {
+    els.push(
+      createTextElement(`compare-label-${index}-${colIndex}`, col.label, 2 + colIndex, {
+        x: col.x,
+        y: 610,
+        width: 330,
+        height: 34,
+        fontSize: 21,
+        fontWeight: 500,
+        color: col.color,
+      }),
+      createListElement(`compare-list-${index}-${colIndex}`, 4 + colIndex, {
+        x: col.x,
+        y: 655,
+        width: 360,
+        height: 170,
+        ordered: false,
+        items: col.items.map((item) => `${item.title} ${item.description}`),
+        fontSize: 18,
+        fontWeight: 400,
+        color: "#3f3f46",
+        lineHeight: 1.28,
+      }),
+    );
+  });
+
+  if (slide.suggested_visual) {
+    els.push(
+      createMediaElement(`media-${index}`, 20, {
+        x: 105,
+        y: 70,
+        width: 520,
+        height: 760,
+        mediaKind: "image",
+        src: testImageUrl,
+        alt: slide.suggested_visual,
+        fit: "cover",
+        borderRadius: 0,
+        background: "#e5e7eb",
+      }),
+    );
+  }
+
+  addFooter(els, index);
 
   return scene(els);
 }
@@ -545,29 +919,42 @@ function buildTableScene(slide: Slide, index: number): EditorScene {
   const els: SlideElement[] = [];
 
   els.push(
+    createBackgroundElement(`bg-${index}`, 0, {
+      x: 0,
+      y: 0,
+      width: SCENE_W,
+      height: SCENE_H,
+      fill: "#ffffff",
+      accent: "#ffffff",
+      pattern: "none",
+    }),
+  );
+
+  els.push(
     createTextElement(`title-${index}`, slide.title, 0, {
-      x: 100,
-      y: 60,
-      width: 1200,
-      height: 80,
-      fontSize: 42,
+      x: 170,
+      y: 82,
+      width: 1160,
+      height: 100,
+      fontSize: 56,
       fontWeight: 800,
-      color: "#0f172a",
+      color: NAVY,
+      lineHeight: 1.08,
     }),
   );
 
   els.push(
     createTableElement(`table-${index}`, 1, {
-      x: 100,
-      y: 170,
-      width: 1400,
-      height: 680,
+      x: 170,
+      y: 230,
+      width: 1260,
+      height: 560,
       headers: rows[0],
       rows: rows.slice(1),
       headerFill: "#e2e8f0",
       borderColor: "#cbd5e1",
       textColor: "#1e293b",
-      fontSize: 20,
+      fontSize: 28,
     }),
   );
 
@@ -582,74 +969,96 @@ function buildKpiScene(slide: Slide, index: number): EditorScene {
   const els: SlideElement[] = [];
 
   els.push(
-    createTextElement(`title-${index}`, slide.title, 0, {
-      x: 100,
-      y: 50,
-      width: 1200,
-      height: 70,
-      fontSize: 40,
-      fontWeight: 800,
-      color: "#0f172a",
+    createBackgroundElement(`bg-${index}`, 0, {
+      x: 0,
+      y: 0,
+      width: SCENE_W,
+      height: SCENE_H,
+      fill: "#ffffff",
+      accent: "#ffffff",
+      pattern: "none",
+    }),
+  );
+
+  els.push(
+    createTextElement(`title-${index}`, slide.title, 1, {
+      x: 675,
+      y: 80,
+      width: 760,
+      height: 130,
+      fontSize: 45,
+      fontWeight: 400,
+      color: "#111827",
+      lineHeight: 1.16,
     }),
   );
 
   const metrics = getMetricItems(slide).slice(0, 4);
-  const cols = metrics.length <= 2 ? 2 : 2;
-  const cardW = 680;
-  const cardH = metrics.length <= 2 ? 380 : 270;
-  const gapX =
-    1400 - cols * cardW > 0 ? (1400 - cols * cardW) / (cols - 1 || 1) : 40;
-
   metrics.forEach((m, i) => {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const cx = 100 + col * (cardW + gapX);
-    const cy = 150 + row * (cardH + 30);
-
+    const positions = [
+      { x: 735, y: 260 },
+      { x: 1090, y: 260 },
+      { x: 910, y: 420 },
+      { x: 910, y: 585 },
+    ];
+    const pos = positions[i] ?? positions[0];
     els.push(
-      createShapeElement(`card-${index}-${i}`, 1 + i, {
-        x: cx,
-        y: cy,
-        width: cardW,
-        height: cardH,
-        shape: "rect",
-        fill: "#ffffff",
-        stroke: "#e2e8f0",
-        strokeWidth: 1,
-        cornerRadius: 20,
-        label: m.value || "--",
-        textColor: "#0f766e",
-        fontSize: 42,
-        fontWeight: 800,
+      createTextElement(`metric-value-${index}-${i}`, m.value || "--", 2 + i * 3, {
+        x: pos.x,
+        y: pos.y,
+        width: 310,
+        height: 72,
+        fontSize: 54,
+        fontWeight: 400,
+        align: "center",
+        color: "#4b5563",
       }),
-    );
-
-    els.push(
-      createTextElement(`label-${index}-${i}`, m.label, 5 + i, {
-        x: cx + 24,
-        y: cy + cardH - 100,
-        width: cardW - 48,
-        height: 40,
-        fontSize: 18,
+      createTextElement(`metric-label-${index}-${i}`, m.label, 3 + i * 3, {
+        x: pos.x,
+        y: pos.y + 76,
+        width: 310,
+        height: 34,
+        fontSize: 20,
         fontWeight: 600,
-        color: "#1e293b",
+        align: "center",
+        color: "#52525b",
       }),
     );
 
     if (m.note) {
       els.push(
-        createTextElement(`note-${index}-${i}`, m.note, 9 + i, {
-          x: cx + 24,
-          y: cy + cardH - 55,
-          width: cardW - 48,
-          height: 45,
-          fontSize: 15,
+        createTextElement(`metric-note-${index}-${i}`, m.note, 4 + i * 3, {
+          x: pos.x,
+          y: pos.y + 112,
+          width: 310,
+          height: 36,
+          fontSize: 17,
           fontWeight: 400,
-          color: "#64748b",
+          align: "center",
+          color: "#52525b",
         }),
       );
     }
   });
+
+  if (slide.suggested_visual) {
+    els.push(
+      createMediaElement(`media-${index}`, 30, {
+        x: 105,
+        y: 70,
+        width: 520,
+        height: 760,
+        mediaKind: "image",
+        src: testImageUrl,
+        alt: slide.suggested_visual,
+        fit: "cover",
+        borderRadius: 0,
+        background: "#e5e7eb",
+      }),
+    );
+  }
+
+  addFooter(els, index);
 
   return scene(els);
 }
@@ -662,49 +1071,79 @@ function buildCardsScene(slide: Slide, index: number): EditorScene {
   const els: SlideElement[] = [];
 
   els.push(
-    createTextElement(`title-${index}`, slide.title, 0, {
-      x: 100,
-      y: 60,
-      width: 1200,
-      height: 80,
-      fontSize: 42,
+    createBackgroundElement(`bg-${index}`, 0, {
+      x: 0,
+      y: 0,
+      width: SCENE_W,
+      height: SCENE_H,
+      fill: "#ffffff",
+      accent: "#ffffff",
+      pattern: "none",
+    }),
+  );
+  addSoftRings(els, index);
+
+  els.push(
+    createTextElement(`title-${index}`, slide.title, 4, {
+      x: 170,
+      y: 82,
+      width: 1160,
+      height: 100,
+      fontSize: 56,
       fontWeight: 800,
-      color: "#0f172a",
+      color: NAVY,
+      lineHeight: 1.08,
     }),
   );
 
-  const cards = getCardItems(slide).slice(0, 6);
-  const cols = cards.length <= 2 ? cards.length : 2;
-  const cardW = cols === 1 ? 1400 : 680;
-  const cardH = 200;
+  const cards = getCardItems(slide).slice(0, 4);
+  const cols = cards.length <= 1 ? 1 : 2;
+  const cardW = cols === 1 ? 1220 : 590;
+  const cardH = 210;
   const gapX = cols > 1 ? 40 : 0;
-  const gapY = 20;
+  const gapY = 34;
 
   cards.forEach((card, i) => {
     const col = i % cols;
     const row = Math.floor(i / cols);
-    const cx = 100 + col * (cardW + gapX);
-    const cy = 170 + row * (cardH + gapY);
+    const cx = 170 + col * (cardW + gapX);
+    const cy = 230 + row * (cardH + gapY);
 
     els.push(
-      createShapeElement(`card-${index}-${i}`, 1 + i, {
+      createShapeElement(`card-${index}-${i}`, 5 + i * 3, {
         x: cx,
         y: cy,
         width: cardW,
         height: cardH,
         shape: "rect",
-        fill: "#ffffff",
+        fill: "#f8fafc",
         stroke: "#e2e8f0",
         strokeWidth: 1,
-        cornerRadius: 16,
-        label: `${card.title}\n${card.description}`,
-        textColor: "#1e293b",
-        fontSize: 18,
-        fontWeight: 500,
-        textAlign: "left",
+        cornerRadius: 8,
+      }),
+      createTextElement(`card-title-${index}-${i}`, card.title, 6 + i * 3, {
+        x: cx + 28,
+        y: cy + 28,
+        width: cardW - 56,
+        height: 42,
+        fontSize: 27,
+        fontWeight: 800,
+        color: "#111827",
+      }),
+      createTextElement(`card-desc-${index}-${i}`, card.description, 7 + i * 3, {
+        x: cx + 28,
+        y: cy + 82,
+        width: cardW - 56,
+        height: 100,
+        fontSize: 23,
+        fontWeight: 400,
+        color: BODY,
+        lineHeight: 1.18,
       }),
     );
   });
+
+  addFooter(els, index);
 
   return scene(els);
 }
@@ -717,47 +1156,64 @@ function buildVisualSplitScene(slide: Slide, index: number): EditorScene {
   const els: SlideElement[] = [];
 
   els.push(
-    createTextElement(`title-${index}`, slide.title, 0, {
-      x: 60,
-      y: 50,
-      width: 720,
-      height: 70,
-      fontSize: 36,
-      fontWeight: 800,
-      color: "#0f172a",
+    createBackgroundElement(`bg-${index}`, 0, {
+      x: 0,
+      y: 0,
+      width: SCENE_W,
+      height: SCENE_H,
+      fill: "#ffffff",
+      accent: "#ffffff",
+      pattern: "none",
     }),
   );
 
-  const paragraphs = getParagraphs(slide).slice(0, 3);
-  paragraphs.forEach((p, i) => {
-    els.push(
-      createTextElement(`para-${index}-${i}`, p, 1 + i, {
-        x: 60,
-        y: 150 + i * 140,
-        width: 700,
-        height: 120,
-        fontSize: 22,
-        fontWeight: 400,
-        color: "#475569",
-        lineHeight: 1.5,
-      }),
-    );
-  });
+  addSoftRings(els, index);
 
   els.push(
-    createMediaElement(`media-${index}`, 4, {
-      x: 820,
-      y: 50,
-      width: 720,
-      height: 800,
-      mediaKind: "image",
-      fit: "cover",
-      borderRadius: 24,
-      src: "",
-      alt: slide.suggested_visual || "Visual",
-      background: "#e2e8f0",
+    createTextElement(`title-${index}`, slide.title, 4, {
+      x: 170,
+      y: 245,
+      width: 650,
+      height: 92,
+      fontSize: 58,
+      fontWeight: 800,
+      color: NAVY,
+      lineHeight: 1.05,
     }),
   );
+
+  const lead = compactText(getParagraphs(slide), 3);
+  if (lead) {
+    els.push(
+      createTextElement(`para-${index}`, lead, 5, {
+        x: 175,
+        y: 365,
+        width: 640,
+        height: 215,
+        fontSize: 27,
+        fontWeight: 400,
+        color: "#111111",
+        lineHeight: 1.16,
+      }),
+    );
+  }
+
+  els.push(
+    createMediaElement(`media-${index}`, 6, {
+      x: 910,
+      y: 120,
+      width: 560,
+      height: 640,
+      mediaKind: "image",
+      fit: "contain",
+      borderRadius: 0,
+      src: testImageUrl,
+      alt: slide.suggested_visual || "Visual",
+      background: "transparent",
+    }),
+  );
+
+  addFooter(els, index);
 
   return scene(els);
 }
@@ -771,24 +1227,25 @@ function buildTimelineScene(slide: Slide, index: number): EditorScene {
 
   els.push(
     createTextElement(`title-${index}`, slide.title, 0, {
-      x: 100,
-      y: 50,
-      width: 1200,
-      height: 70,
-      fontSize: 40,
+      x: 170,
+      y: 82,
+      width: 1160,
+      height: 100,
+      fontSize: 56,
       fontWeight: 800,
-      color: "#0f172a",
+      color: NAVY,
+      lineHeight: 1.08,
     }),
   );
 
-  const steps = slide.main_content.slice(0, 6).map(stripBulletPrefix);
+  const steps = slide.main_content.slice(0, 5).map(stripBulletPrefix);
 
   els.push(
     createShapeElement(`line-${index}`, 1, {
-      x: 145,
-      y: 160,
-      width: 4,
-      height: Math.min(steps.length * 130, 700),
+      x: 215,
+      y: 220,
+      width: 12,
+      height: Math.min(steps.length * 118, 600),
       shape: "rect",
       fill: "#cbd5e1",
       cornerRadius: 2,
@@ -800,29 +1257,30 @@ function buildTimelineScene(slide: Slide, index: number): EditorScene {
   steps.forEach((step, i) => {
     els.push(
       createShapeElement(`dot-${index}-${i}`, 2 + i * 2, {
-        x: 122,
-        y: 155 + i * 130,
-        width: 50,
-        height: 50,
+        x: 190,
+        y: 205 + i * 118,
+        width: 60,
+        height: 60,
         shape: "ellipse",
         fill: "#0f766e",
         stroke: "transparent",
         strokeWidth: 0,
         label: `${i + 1}`,
         textColor: "#ffffff",
-        fontSize: 20,
+        fontSize: 23,
         fontWeight: 700,
       }),
     );
     els.push(
       createTextElement(`step-${index}-${i}`, step, 3 + i * 2, {
-        x: 200,
-        y: 158 + i * 130,
-        width: 1300,
-        height: 50,
-        fontSize: 24,
+        x: 285,
+        y: 214 + i * 118,
+        width: 1050,
+        height: 78,
+        fontSize: 30,
         fontWeight: 500,
         color: "#1e293b",
+        lineHeight: 1.18,
       }),
     );
   });
@@ -839,17 +1297,18 @@ function buildProcessScene(slide: Slide, index: number): EditorScene {
 
   els.push(
     createTextElement(`title-${index}`, slide.title, 0, {
-      x: 100,
-      y: 50,
-      width: 1200,
-      height: 70,
-      fontSize: 40,
+      x: 170,
+      y: 82,
+      width: 1160,
+      height: 100,
+      fontSize: 56,
       fontWeight: 800,
-      color: "#0f172a",
+      color: NAVY,
+      lineHeight: 1.08,
     }),
   );
 
-  const steps = slide.main_content.slice(0, 5).map(stripBulletPrefix);
+  const steps = slide.main_content.slice(0, 4).map(stripBulletPrefix);
   const count = steps.length || 1;
   const totalW = 1400;
   const gap = 16;
@@ -861,9 +1320,9 @@ function buildProcessScene(slide: Slide, index: number): EditorScene {
     els.push(
       createShapeElement(`step-${index}-${i}`, 1 + i * 2, {
         x: sx,
-        y: 180,
+        y: 250,
         width: stepW,
-        height: 360,
+        height: 320,
         shape: "rect",
         fill: "#f8fafc",
         stroke: "#e2e8f0",
@@ -871,7 +1330,7 @@ function buildProcessScene(slide: Slide, index: number): EditorScene {
         cornerRadius: 20,
         label: `${i + 1}. ${step}`,
         textColor: "#1e293b",
-        fontSize: 17,
+        fontSize: 24,
         fontWeight: 600,
         textAlign: "left",
       }),
@@ -881,7 +1340,7 @@ function buildProcessScene(slide: Slide, index: number): EditorScene {
       els.push(
         createShapeElement(`arrow-${index}-${i}`, 2 + i * 2, {
           x: sx + stepW - 2,
-          y: 345,
+          y: 390,
           width: gap + 4,
           height: 28,
           shape: "rect",
@@ -910,13 +1369,14 @@ function buildProblemSolutionScene(slide: Slide, index: number): EditorScene {
 
   els.push(
     createTextElement(`title-${index}`, slide.title, 0, {
-      x: 100,
-      y: 50,
-      width: 1200,
-      height: 70,
-      fontSize: 40,
+      x: 170,
+      y: 82,
+      width: 1160,
+      height: 100,
+      fontSize: 54,
       fontWeight: 800,
-      color: "#0f172a",
+      color: NAVY,
+      lineHeight: 1.08,
     }),
   );
 
@@ -928,9 +1388,9 @@ function buildProblemSolutionScene(slide: Slide, index: number): EditorScene {
   els.push(
     createShapeElement(`prob-bg-${index}`, 1, {
       x: 60,
-      y: 150,
+      y: 230,
       width: 720,
-      height: 700,
+      height: 500,
       shape: "rect",
       fill: "#fef2f2",
       stroke: "#fca5a5",
@@ -942,10 +1402,10 @@ function buildProblemSolutionScene(slide: Slide, index: number): EditorScene {
   els.push(
     createTextElement(`prob-label-${index}`, "Probleme", 2, {
       x: 90,
-      y: 170,
+      y: 255,
       width: 300,
       height: 40,
-      fontSize: 20,
+      fontSize: 28,
       fontWeight: 700,
       color: "#dc2626",
     }),
@@ -954,10 +1414,10 @@ function buildProblemSolutionScene(slide: Slide, index: number): EditorScene {
   els.push(
     createTextElement(`prob-text-${index}`, problemText, 3, {
       x: 90,
-      y: 225,
+      y: 315,
       width: 660,
-      height: 590,
-      fontSize: 22,
+      height: 350,
+      fontSize: 28,
       fontWeight: 400,
       color: "#7f1d1d",
       lineHeight: 1.5,
@@ -967,9 +1427,9 @@ function buildProblemSolutionScene(slide: Slide, index: number): EditorScene {
   els.push(
     createShapeElement(`sol-bg-${index}`, 4, {
       x: 820,
-      y: 150,
+      y: 230,
       width: 720,
-      height: 700,
+      height: 500,
       shape: "rect",
       fill: "#f0fdf4",
       stroke: "#86efac",
@@ -981,10 +1441,10 @@ function buildProblemSolutionScene(slide: Slide, index: number): EditorScene {
   els.push(
     createTextElement(`sol-label-${index}`, "Solution", 5, {
       x: 850,
-      y: 170,
+      y: 255,
       width: 300,
       height: 40,
-      fontSize: 20,
+      fontSize: 28,
       fontWeight: 700,
       color: "#16a34a",
     }),
@@ -993,10 +1453,10 @@ function buildProblemSolutionScene(slide: Slide, index: number): EditorScene {
   els.push(
     createTextElement(`sol-text-${index}`, solutionText, 6, {
       x: 850,
-      y: 225,
+      y: 315,
       width: 660,
-      height: 590,
-      fontSize: 22,
+      height: 350,
+      fontSize: 28,
       fontWeight: 400,
       color: "#14532d",
       lineHeight: 1.5,
@@ -1018,13 +1478,14 @@ function buildQAScene(slide: Slide, index: number): EditorScene {
 
   els.push(
     createTextElement(`title-${index}`, slide.title, 0, {
-      x: 100,
-      y: 50,
-      width: 1200,
-      height: 70,
-      fontSize: 40,
+      x: 170,
+      y: 82,
+      width: 1160,
+      height: 100,
+      fontSize: 56,
       fontWeight: 800,
-      color: "#0f172a",
+      color: NAVY,
+      lineHeight: 1.08,
     }),
   );
 
@@ -1032,22 +1493,22 @@ function buildQAScene(slide: Slide, index: number): EditorScene {
   pairs.forEach((pair, i) => {
     els.push(
       createTextElement(`q-${index}-${i}`, `Q: ${pair.term}`, 1 + i * 2, {
-        x: 100,
-        y: 150 + i * 170,
-        width: 1400,
+        x: 170,
+        y: 220 + i * 130,
+        width: 1260,
         height: 45,
-        fontSize: 22,
+        fontSize: 28,
         fontWeight: 700,
         color: "#0f766e",
       }),
     );
     els.push(
       createTextElement(`a-${index}-${i}`, pair.explanation, 2 + i * 2, {
-        x: 100,
-        y: 200 + i * 170,
-        width: 1400,
-        height: 90,
-        fontSize: 20,
+        x: 170,
+        y: 265 + i * 130,
+        width: 1260,
+        height: 80,
+        fontSize: 25,
         fontWeight: 400,
         color: "#475569",
         lineHeight: 1.4,
@@ -1073,7 +1534,7 @@ function buildClosingScene(slide: Slide, index: number): EditorScene {
       width: 1600,
       height: 900,
       fill: "#ffffff",
-      accent: "#e2e8f0",
+      accent: "#ffffff",
       pattern: "none",
     }),
   );
@@ -1082,10 +1543,10 @@ function buildClosingScene(slide: Slide, index: number): EditorScene {
     els.push(
       createTextElement(`eyebrow-${index}`, "MERCI", 1, {
         x: 500,
-        y: 220,
+        y: 185,
         width: 600,
         height: 30,
-        fontSize: 13,
+        fontSize: 18,
         fontWeight: 600,
         align: "center",
         color: "#94a3b8",
@@ -1098,8 +1559,8 @@ function buildClosingScene(slide: Slide, index: number): EditorScene {
       x: 200,
       y: 280,
       width: 1200,
-      height: 100,
-      fontSize: 44,
+      height: 130,
+      fontSize: 58,
       fontWeight: 800,
       align: "center",
       color: "#0f172a",
@@ -1111,10 +1572,10 @@ function buildClosingScene(slide: Slide, index: number): EditorScene {
     els.push(
       createTextElement(`content-${index}-${i}`, p, 3 + i, {
         x: 200,
-        y: 410 + i * 80,
+        y: 440 + i * 92,
         width: 1200,
-        height: 70,
-        fontSize: 22,
+        height: 80,
+        fontSize: 28,
         fontWeight: 400,
         align: "center",
         color: "#475569",
@@ -1193,5 +1654,5 @@ export function buildEditorSceneForSlide(
   const cleaned = ct(slide);
   const semantic: SlideSemanticType = resolveSemanticType(cleaned);
   const builder = BUILDER_MAP[semantic] ?? buildParagraphScene;
-  return builder(cleaned, index);
+  return finalizeScene(builder(cleaned, index), index, semantic);
 }

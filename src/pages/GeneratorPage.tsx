@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { usePresentationStore } from "../store/presentationStore";
 import {
@@ -9,11 +9,176 @@ import {
   FileText,
   FolderHeart,
   Settings2,
+  Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { UserProfileMenu } from "@/components/auth/UserProfileMenu";
 import { motion } from "framer-motion";
+import { SlideThumbnail } from "@/presentation/SlideThumbnail";
+import {
+  getSavedPresentation,
+  type PersistedPresentationSummary,
+  type Presentation,
+} from "@/services/api";
+
+/**
+ * Cache module-level: une présentation chargée reste en mémoire
+ * pour la durée de la session — évite les re-fetch lors de re-render.
+ */
+const presentationCache = new Map<string, Presentation>();
+const inFlight = new Map<string, Promise<Presentation>>();
+
+function loadPresentation(id: string): Promise<Presentation> {
+  const cached = presentationCache.get(id);
+  if (cached) return Promise.resolve(cached);
+  const existing = inFlight.get(id);
+  if (existing) return existing;
+
+  const promise = getSavedPresentation(id)
+    .then((res) => {
+      presentationCache.set(id, res.presentation);
+      inFlight.delete(id);
+      return res.presentation;
+    })
+    .catch((err) => {
+      inFlight.delete(id);
+      throw err;
+    });
+
+  inFlight.set(id, promise);
+  return promise;
+}
+
+/**
+ * Carte "présentation récente" style Canva : vignette + titre + date.
+ * Charge la présentation complète en lazy au mount pour rendre la
+ * première slide via SlideThumbnail.
+ */
+function RecentPresentationCard({
+  item,
+  onOpen,
+}: {
+  item: PersistedPresentationSummary;
+  onOpen: () => void;
+}) {
+  const [presentation, setPresentation] = useState<Presentation | null>(
+    () => presentationCache.get(item.id) ?? null,
+  );
+  const [errored, setErrored] = useState(false);
+  const [activeSlide, setActiveSlide] = useState(0);
+  const intervalRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (presentation) return;
+    let cancelled = false;
+    loadPresentation(item.id)
+      .then((p) => {
+        if (!cancelled) setPresentation(p);
+      })
+      .catch(() => {
+        if (!cancelled) setErrored(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.id, presentation]);
+
+  // Nettoyage de l'interval au démontage
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current !== null) {
+        window.clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, []);
+
+  const startRotation = () => {
+    if (!presentation || presentation.slides.length <= 1) return;
+    if (intervalRef.current !== null) return;
+    intervalRef.current = window.setInterval(() => {
+      setActiveSlide((prev) =>
+        presentation.slides.length === 0
+          ? 0
+          : (prev + 1) % presentation.slides.length,
+      );
+    }, 900);
+  };
+
+  const stopRotation = () => {
+    if (intervalRef.current !== null) {
+      window.clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    setActiveSlide(0);
+  };
+
+  const updatedLabel = useMemo(() => {
+    const d = new Date(item.updated_at);
+    return d.toLocaleDateString("fr-FR", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  }, [item.updated_at]);
+
+  return (
+    <div
+      className="cursor-pointer"
+      onClick={onOpen}
+      onMouseEnter={startRotation}
+      onMouseLeave={stopRotation}
+    >
+      {/* Cadre gris : seule la bordure change au survol, aucun shadow/scale */}
+      <div className="relative rounded-2xl bg-muted/50 border border-border/40 hover:border-primary/40 transition-colors duration-150 p-4 sm:p-5">
+        <div className="relative rounded-md border border-border/30 bg-white overflow-hidden">
+          {presentation ? (
+            <motion.div
+              key={activeSlide}
+              initial={{ opacity: 0.6 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+            >
+              <SlideThumbnail
+                presentation={presentation}
+                slideIndex={activeSlide}
+              />
+            </motion.div>
+          ) : errored ? (
+            <div className="aspect-[16/9] flex items-center justify-center">
+              <FileText className="size-7 text-muted-foreground/30" />
+            </div>
+          ) : (
+            <div className="aspect-[16/9] flex items-center justify-center">
+              <Spinner className="size-5 text-muted-foreground/40" />
+            </div>
+          )}
+
+          {/* Badge index courant / total */}
+          {presentation && (
+            <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-md bg-foreground/75 backdrop-blur-sm text-background text-[10px] font-mono font-medium tabular-nums">
+              {activeSlide + 1} / {presentation.slides.length}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Métadonnées sous la carte */}
+      <div className="mt-3 px-1">
+        <p className="text-sm font-semibold text-foreground truncate">
+          {item.title}
+        </p>
+        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className="inline-flex size-4 items-center justify-center rounded-full bg-primary/10">
+            <Clock className="size-2.5 text-primary" />
+          </span>
+          <span>Modifié le {updatedLabel}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const easeCurve: [number, number, number, number] = [0.25, 0.46, 0.45, 0.94];
 
@@ -41,8 +206,10 @@ export default function GeneratorPage() {
     refreshUserPresentations,
   } = usePresentationStore();
 
+  const [listLoaded, setListLoaded] = useState(false);
+
   useEffect(() => {
-    void refreshUserPresentations();
+    void refreshUserPresentations().finally(() => setListLoaded(true));
   }, [refreshUserPresentations]);
 
   const recentPresentations = useMemo(
@@ -92,7 +259,7 @@ export default function GeneratorPage() {
               Accueil
             </button>
             <button className="text-muted-foreground hover:text-foreground transition-colors duration-300 tracking-tight font-medium text-sm py-2 px-1">
-              Templates
+              Modèles
             </button>
             <button className="text-muted-foreground hover:text-foreground transition-colors duration-300 tracking-tight font-medium text-sm py-2 px-1">
               Archives
@@ -111,9 +278,9 @@ export default function GeneratorPage() {
         <div className="flex flex-col gap-7">
           {[
             { icon: FileText, label: "Brouillons", path: "/generate" },
-            { icon: LayoutList, label: "Templates", path: "/generate" },
+            { icon: LayoutList, label: "Modèles", path: "/generate" },
             { icon: FolderHeart, label: "Collections", path: "/collections" },
-            { icon: Settings2, label: "Paramètres", path: "/generate" },
+            { icon: Settings2, label: "Paramètres", path: "/settings/ai-providers" },
           ].map((item) => (
             <button
               key={item.label}
@@ -239,10 +406,10 @@ export default function GeneratorPage() {
             </motion.div>
           </motion.div>
 
-          <section className="mt-10 pb-8">
-            <div className="flex items-center justify-between mb-4">
+          <section className="mt-12 pb-8">
+            <div className="flex items-center justify-between mb-5">
               <h2 className="text-lg md:text-xl font-semibold tracking-tight">
-                Presentations recentes
+                Présentations récentes
               </h2>
               <button
                 onClick={() => navigate("/collections")}
@@ -252,25 +419,52 @@ export default function GeneratorPage() {
               </button>
             </div>
 
-            {recentPresentations.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border/70 bg-card/60 p-6 text-sm text-muted-foreground text-center">
-                Aucune presentation recente.
-              </div>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {recentPresentations.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => navigate(`/presentation/${item.id}?slide=0`)}
-                    className="rounded-xl border border-border/60 bg-card p-4 text-left hover:border-primary/40 hover:shadow-sm transition-all cursor-pointer"
-                  >
-                    <p className="font-semibold truncate">{item.title}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      MAJ: {new Date(item.updated_at).toLocaleString()}
-                    </p>
-                  </button>
+            {!listLoaded ? (
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="space-y-3">
+                    <div className="rounded-2xl bg-muted/40 p-4 sm:p-5">
+                      <div className="aspect-[16/9] rounded-md bg-muted/70 animate-pulse" />
+                    </div>
+                    <div className="space-y-2 px-1">
+                      <div className="h-3.5 w-3/4 rounded bg-muted/70 animate-pulse" />
+                      <div className="h-2.5 w-1/2 rounded bg-muted/60 animate-pulse" />
+                    </div>
+                  </div>
                 ))}
               </div>
+            ) : recentPresentations.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-border/70 bg-card/60 p-10 text-center">
+                <FileText className="size-8 mx-auto mb-3 text-muted-foreground/40" />
+                <p className="text-sm font-medium text-foreground">
+                  Aucune présentation pour le moment.
+                </p>
+                <p className="text-xs mt-1 text-muted-foreground/70">
+                  Saisissez un sujet ci-dessus pour générer votre premier deck.
+                </p>
+              </div>
+            ) : (
+              <motion.div
+                className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3"
+                initial="hidden"
+                animate="visible"
+                variants={stagger}
+              >
+                {recentPresentations.map((item, idx) => (
+                  <motion.div
+                    key={item.id}
+                    variants={fadeUp}
+                    custom={idx}
+                  >
+                    <RecentPresentationCard
+                      item={item}
+                      onOpen={() =>
+                        navigate(`/presentation/${item.id}?slide=0`)
+                      }
+                    />
+                  </motion.div>
+                ))}
+              </motion.div>
             )}
           </section>
         </div>

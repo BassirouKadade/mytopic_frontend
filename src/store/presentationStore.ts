@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import axios from "axios";
+import testImageUrl from "@/assets/image-test.jpeg";
 import type {
   ChartSlideElement,
   ColumnsSlideElement,
@@ -24,7 +25,6 @@ import {
   ensureFixedBackgroundShape,
   FIXED_BG_ELEMENT_ID,
   createSavedPresentation,
-  generateImageFromPrompt,
   generatePresentation,
   getSavedPresentation,
   listSavedPresentations,
@@ -362,59 +362,49 @@ export const usePresentationStore = create<PresentationState>((set, get) => ({
         })),
       };
 
-      const visualTargets = enriched.slides
-        .map((slide, index) => ({
-          index,
-          prompt: (slide.suggested_visual ?? "").trim(),
-        }))
-        .filter((target) => target.prompt.length > 0)
-        .slice(0, 3);
+      enriched.slides.forEach((slide, index) => {
+        const canUseImage =
+          slide.semantic_type === "cover.title" ||
+          slide.semantic_type.startsWith("visual.") ||
+          slide.semantic_type === "business.product_feature";
 
-      if (visualTargets.length > 0) {
-        const imageResults = await Promise.allSettled(
-          visualTargets.map((target) =>
-            generateImageFromPrompt(
-              `Professional presentation visual, high quality, realistic: ${target.prompt}`,
-              "1536x1024",
-            ),
-          ),
+        const prompt = (slide.suggested_visual ?? "").trim();
+        if (!canUseImage) {
+          slide.editor_scene.elements = slide.editor_scene.elements.filter(
+            (element) => element.type !== "media",
+          );
+          return;
+        }
+
+        let mediaElement = slide.editor_scene.elements.find(
+          (element) => element.type === "media",
         );
 
-        imageResults.forEach((result, resultIndex) => {
-          if (result.status !== "fulfilled") return;
-          const target = visualTargets[resultIndex];
-          const slide = enriched.slides[target.index];
-          if (!slide) return;
-
-          let mediaElement = slide.editor_scene.elements.find(
-            (element) => element.type === "media",
+        if (!mediaElement && (prompt || slide.semantic_type === "cover.title")) {
+          mediaElement = createMediaElement(
+            `media-test-${index}`,
+            slide.editor_scene.elements.length,
+            {
+              x: 820,
+              y: 120,
+              width: 680,
+              height: 420,
+              mediaKind: "image",
+              src: testImageUrl,
+              alt: prompt || "Image de test",
+              fit: "cover",
+              borderRadius: 0,
+              background: "#e5e7eb",
+            },
           );
+          slide.editor_scene.elements.push(mediaElement);
+        }
 
-          if (!mediaElement) {
-            mediaElement = createMediaElement(
-              `media-auto-${target.index}`,
-              slide.editor_scene.elements.length,
-              {
-                x: 820,
-                y: 120,
-                width: 680,
-                height: 420,
-                mediaKind: "image",
-                src: "",
-                alt: target.prompt,
-                fit: "cover",
-                borderRadius: 20,
-                background: "#e2e8f0",
-              },
-            );
-            slide.editor_scene.elements.push(mediaElement);
-          }
-
-          if (mediaElement.type !== "media") return;
-          mediaElement.src = result.value.image_data_url;
-          mediaElement.alt = target.prompt;
-        });
-      }
+        if (mediaElement?.type === "media" && !mediaElement.src) {
+          mediaElement.src = testImageUrl;
+          mediaElement.alt = prompt || mediaElement.alt || "Image de test";
+        }
+      });
 
       const title = enriched.presentation_title || topic;
       const created = await createSavedPresentation(title, enriched);

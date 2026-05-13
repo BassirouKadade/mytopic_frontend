@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LogOut } from "lucide-react";
+import { BrainCircuit, LogOut } from "lucide-react";
 
 import {
   AlertDialog,
@@ -116,6 +116,13 @@ export function UserProfileMenu({ avatarOnly = false }: UserProfileMenuProps) {
             </div>
           </MenubarTrigger>
           <MenubarContent align="end" className="min-w-44">
+            <MenubarItem
+              onClick={() => navigate("/settings/ai-providers")}
+              className="cursor-pointer"
+            >
+              <BrainCircuit className="size-4" />
+              AI Providers
+            </MenubarItem>
             <MenubarItem
               variant="destructive"
               onClick={() => setIsDialogOpen(true)}

@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { parseAsInteger, useQueryState } from "nuqs";
 import { TransformComponent, TransformWrapper } from "react-zoom-pan-pinch";
+import testImageUrl from "@/assets/image-test.jpeg";
 import {
   AlignCenter,
   AlignLeft,
@@ -46,13 +47,12 @@ import { SLIDE_ASPECT_RATIO } from "@/presentation/primitives";
 import { cn } from "@/lib/utils";
 import {
   deleteFavoriteImageAsset,
-  generateImageFromPrompt,
   listFavoriteImageAssets,
   saveFavoriteImageAsset,
   type FavoriteImageAsset,
 } from "@/services/api";
 import { usePresentationStore } from "@/store/presentationStore";
-import type { SlideElement } from "@/services/api";
+import type { Presentation, SlideElement } from "@/services/api";
 
 const SlideEditorCanvas = lazy(() =>
   import("@/editor/SlideEditorCanvas").then((mod) => ({
@@ -62,6 +62,10 @@ const SlideEditorCanvas = lazy(() =>
 
 const THUMB_ITEM_SIZE = 124;
 type SidebarMode = "templates" | "elements" | "uploads";
+
+function clonePresentation(value: Presentation): Presentation {
+  return JSON.parse(JSON.stringify(value)) as Presentation;
+}
 
 export default function PresentationPage() {
   const LAST_PRESENTATION_KEY = "mytopic_last_presentation_id";
@@ -119,6 +123,7 @@ export default function PresentationPage() {
   const [loadingUploads, setLoadingUploads] = useState(false);
   const [savingFavorite, setSavingFavorite] = useState(false);
   const [workspaceZoom, setWorkspaceZoom] = useState(1);
+  const [presentationsReady, setPresentationsReady] = useState(false);
   const [openSlideMenuIndex, setOpenSlideMenuIndex] = useState<number | null>(
     null,
   );
@@ -146,6 +151,10 @@ export default function PresentationPage() {
 
   const pendingRouteLoadRef = useRef<string | null>(null);
   const clipboardElementsRef = useRef<SlideElement[]>([]);
+  const undoStackRef = useRef<Presentation[]>([]);
+  const redoStackRef = useRef<Presentation[]>([]);
+  const lastPresentationSnapshotRef = useRef<Presentation | null>(null);
+  const applyingHistoryRef = useRef(false);
   const thumbnailsScrollRef = useRef<HTMLDivElement | null>(null);
   const thumbnailRefs = useRef<Record<number, HTMLButtonElement | null>>({});
 
@@ -260,6 +269,48 @@ export default function PresentationPage() {
     setSelectedElementIds([]);
   };
 
+  const selectAllEditableElements = () => {
+    if (!scene) return false;
+    const ids = scene.elements
+      .filter(
+        (element) =>
+          element.visible !== false &&
+          !element.locked &&
+          element.type !== "background",
+      )
+      .map((element) => element.id);
+    if (ids.length === 0) return false;
+    setSelectedElementIds(ids);
+    return true;
+  };
+
+  const restorePresentationSnapshot = (snapshot: Presentation) => {
+    applyingHistoryRef.current = true;
+    usePresentationStore.setState({
+      presentation: clonePresentation(snapshot),
+      dirty: true,
+    });
+    setSelectedElementIds([]);
+  };
+
+  const undoPresentationChange = () => {
+    if (!presentation || undoStackRef.current.length === 0) return false;
+    const previous = undoStackRef.current.pop();
+    if (!previous) return false;
+    redoStackRef.current.push(clonePresentation(presentation));
+    restorePresentationSnapshot(previous);
+    return true;
+  };
+
+  const redoPresentationChange = () => {
+    if (!presentation || redoStackRef.current.length === 0) return false;
+    const next = redoStackRef.current.pop();
+    if (!next) return false;
+    undoStackRef.current.push(clonePresentation(presentation));
+    restorePresentationSnapshot(next);
+    return true;
+  };
+
   const applyTemplateFromMenu = (template: EditorTemplateType) => {
     setSelectedTemplate(template);
     applyTemplateToSlide(safeCurrentSlide, template);
@@ -272,24 +323,23 @@ export default function PresentationPage() {
 
     setImageGenerating(true);
     try {
-      const generated = await generateImageFromPrompt(prompt, imageSize);
       setLastGeneratedImage({
-        dataUrl: generated.image_data_url,
+        dataUrl: testImageUrl,
         prompt,
-        mimeType: generated.mime_type,
+        mimeType: "image/jpeg",
       });
 
       if (selectedMediaElement) {
         updateElementStyle(safeCurrentSlide, selectedMediaElement.id, {
           mediaKind: "image",
-          src: generated.image_data_url,
+          src: testImageUrl,
           alt: prompt,
         });
         setSelectedElementIds([selectedMediaElement.id]);
       } else {
         const insertedId = addGeneratedImageToSlide(
           safeCurrentSlide,
-          generated.image_data_url,
+          testImageUrl,
           prompt,
         );
         if (insertedId) {
@@ -297,7 +347,7 @@ export default function PresentationPage() {
         }
       }
 
-      toast.success("Image generee et ajoutee a la slide.");
+      toast.success("Image de test ajoutee a la slide.");
       setShowImageMenu(false);
     } catch (cause) {
       const message =
@@ -564,7 +614,10 @@ export default function PresentationPage() {
   }, [showExportMenu, showImageMenu, openSlideMenuIndex]);
 
   useEffect(() => {
-    void refreshUserPresentations();
+    setPresentationsReady(false);
+    void refreshUserPresentations().finally(() => {
+      setPresentationsReady(true);
+    });
   }, [refreshUserPresentations]);
 
   useEffect(() => {
@@ -581,11 +634,26 @@ export default function PresentationPage() {
 
   useEffect(() => {
     if (routePresentationId) return;
+    if (!presentationsReady) return;
     const last = localStorage.getItem(LAST_PRESENTATION_KEY);
     if (!last) return;
+    if (presentations.length === 0) {
+      localStorage.removeItem(LAST_PRESENTATION_KEY);
+      return;
+    }
+    if (!presentations.some((item) => item.id === last)) {
+      localStorage.removeItem(LAST_PRESENTATION_KEY);
+      return;
+    }
     navigate(`/presentation/${last}?slide=0`, { replace: true });
     void setSlideParam(0);
-  }, [navigate, routePresentationId, setSlideParam]);
+  }, [
+    navigate,
+    presentations,
+    presentationsReady,
+    routePresentationId,
+    setSlideParam,
+  ]);
 
   useEffect(() => {
     if (!routePresentationId) return;
@@ -610,6 +678,37 @@ export default function PresentationPage() {
     }, 700);
     return () => window.clearTimeout(timeout);
   }, [dirty, loading, presentation, saveCurrentPresentation, saving]);
+
+  useEffect(() => {
+    if (!presentation) {
+      lastPresentationSnapshotRef.current = null;
+      undoStackRef.current = [];
+      redoStackRef.current = [];
+      return;
+    }
+
+    const nextSnapshot = clonePresentation(presentation);
+    const previousSnapshot = lastPresentationSnapshotRef.current;
+
+    if (applyingHistoryRef.current) {
+      applyingHistoryRef.current = false;
+      lastPresentationSnapshotRef.current = nextSnapshot;
+      return;
+    }
+
+    if (
+      previousSnapshot &&
+      JSON.stringify(previousSnapshot) !== JSON.stringify(nextSnapshot)
+    ) {
+      undoStackRef.current.push(previousSnapshot);
+      if (undoStackRef.current.length > 80) {
+        undoStackRef.current.shift();
+      }
+      redoStackRef.current = [];
+    }
+
+    lastPresentationSnapshotRef.current = nextSnapshot;
+  }, [presentation]);
 
   useEffect(() => {
     const flushIfDirty = () => {
@@ -671,9 +770,37 @@ export default function PresentationPage() {
       if (event.key === "ArrowLeft") {
         void setSlideParam(Math.max(0, safeCurrentSlide - 1));
       }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+        if (selectAllEditableElements()) {
+          event.preventDefault();
+        }
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        const handled = event.shiftKey
+          ? redoPresentationChange()
+          : undoPresentationChange();
+        if (handled) {
+          event.preventDefault();
+        }
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
+        if (redoPresentationChange()) {
+          event.preventDefault();
+        }
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
         if (copySelectedElements()) {
           event.preventDefault();
+        }
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "x") {
+        if (copySelectedElements()) {
+          event.preventDefault();
+          deleteSelectedElements();
         }
         return;
       }
@@ -708,6 +835,15 @@ export default function PresentationPage() {
     if (!error) return;
     toast.error(error);
   }, [error]);
+
+  useEffect(() => {
+    if (!error || !routePresentationId || loading || presentation) return;
+    const last = localStorage.getItem(LAST_PRESENTATION_KEY);
+    if (last === routePresentationId) {
+      localStorage.removeItem(LAST_PRESENTATION_KEY);
+    }
+    navigate("/presentation", { replace: true });
+  }, [error, loading, navigate, presentation, routePresentationId]);
 
   useEffect(() => {
     setSelectedElementIds((current) => {
@@ -867,13 +1003,13 @@ export default function PresentationPage() {
             {showImageMenu && (
               <div className="absolute right-0 top-10 z-50 w-80 rounded-lg border border-border/50 bg-background shadow-sm p-2.5 space-y-2">
                 <p className="text-xs font-semibold text-foreground">
-                  Generer une image depuis un prompt
+                  Ajouter l'image de test locale
                 </p>
                 <textarea
                   value={imagePrompt}
                   onChange={(event) => setImagePrompt(event.target.value)}
                   rows={3}
-                  placeholder="Ex: Illustration moderne sur l'energie solaire"
+                  placeholder="Description optionnelle de l'image"
                   className="w-full resize-none rounded-lg border border-border/70 bg-background px-2.5 py-2 text-xs text-foreground outline-none focus-visible:border-ring"
                 />
 
@@ -903,13 +1039,13 @@ export default function PresentationPage() {
                       imageGenerating || imagePrompt.trim().length === 0
                     }
                   >
-                    {imageGenerating ? "Generation..." : "Generer"}
+                    {imageGenerating ? "Ajout..." : "Ajouter"}
                   </Button>
                 </div>
 
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Si un element media est selectionne, il sera remplace. Sinon,
-                  un nouvel element image est ajoute automatiquement.
+                  La generation IA est desactivee pour economiser les credits.
+                  L'image utilisee est src/assets/image-test.jpeg.
                 </p>
 
                 {lastGeneratedImage && (
@@ -1301,14 +1437,14 @@ export default function PresentationPage() {
 
                   <div
                     className={cn(
-                      "absolute left-1/2 -translate-x-1/2 -top-14 z-20 hidden max-w-[calc(100%-12px)] items-center gap-1 rounded-xl border border-border/70 bg-background/95 backdrop-blur-md px-1.5 py-1.5 md:max-h-24 md:flex-wrap md:overflow-x-auto",
-                      selectedElement && "md:flex",
+                      "absolute left-1/2 -translate-x-1/2 -top-13 z-30 hidden max-w-[calc(100%+180px)] items-center gap-1.5 overflow-visible whitespace-nowrap rounded-lg border border-border/70 bg-background/95 px-2 py-1 shadow-sm backdrop-blur-md",
+                      selectedElement && "md:hidden",
                     )}
                   >
-                    <div className="flex items-center gap-1 rounded-lg border border-border/70 bg-background px-1 py-0.5">
+                    <div className="flex h-9 shrink-0 items-center gap-0.5 rounded-md border border-border/70 bg-background px-1">
                       <button
                         onClick={() => toggleToolbarGroup("common")}
-                        className="rounded-md px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-muted"
+                        className="h-7 rounded-md px-2 text-[11px] font-semibold text-foreground hover:bg-muted"
                       >
                         Opacite {collapsedGroups.common ? "+" : "-"}
                       </button>
@@ -1325,11 +1461,11 @@ export default function PresentationPage() {
                                 ),
                               })
                             }
-                            className="flex size-8 items-center justify-center rounded-md text-foreground hover:bg-muted"
+                            className="flex size-7 items-center justify-center rounded-md text-foreground hover:bg-muted"
                           >
                             <Minus className="size-4" />
                           </button>
-                          <span className="min-w-9 text-center text-xs font-semibold text-foreground tabular-nums">
+                          <span className="min-w-9 text-center text-xs font-semibold text-foreground tabular-nums leading-none">
                             {Math.round(selectedElement.opacity * 100)}%
                           </span>
                           <button
@@ -1343,7 +1479,7 @@ export default function PresentationPage() {
                                 ),
                               })
                             }
-                            className="flex size-8 items-center justify-center rounded-md text-foreground hover:bg-muted"
+                            className="flex size-7 items-center justify-center rounded-md text-foreground hover:bg-muted"
                           >
                             <Plus className="size-4" />
                           </button>
@@ -1352,10 +1488,10 @@ export default function PresentationPage() {
                     </div>
 
                     {selectedTextElement && (
-                      <div className="flex items-center gap-1 rounded-lg border border-border/70 bg-background px-1 py-0.5">
+                      <div className="flex h-9 shrink-0 items-center gap-0.5 rounded-md border border-border/70 bg-background px-1">
                         <button
                           onClick={() => toggleToolbarGroup("text")}
-                          className="rounded-md px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-muted"
+                          className="h-7 rounded-md px-2 text-[11px] font-semibold text-foreground hover:bg-muted"
                         >
                           Texte {collapsedGroups.text ? "+" : "-"}
                         </button>
@@ -1363,16 +1499,16 @@ export default function PresentationPage() {
                           <>
                             <button
                               onClick={() => adjustFontSize(-1)}
-                              className="flex size-8 items-center justify-center rounded-md text-foreground hover:bg-muted"
+                              className="flex size-7 items-center justify-center rounded-md text-foreground hover:bg-muted"
                             >
                               <Minus className="size-4" />
                             </button>
-                            <span className="min-w-8 text-center text-xs font-semibold text-foreground tabular-nums">
+                            <span className="min-w-8 text-center text-xs font-semibold text-foreground tabular-nums leading-none">
                               {Math.round(selectedTextElement.fontSize)}
                             </span>
                             <button
                               onClick={() => adjustFontSize(1)}
-                              className="flex size-8 items-center justify-center rounded-md text-foreground hover:bg-muted"
+                              className="flex size-7 items-center justify-center rounded-md text-foreground hover:bg-muted"
                             >
                               <Plus className="size-4" />
                             </button>
@@ -1389,7 +1525,7 @@ export default function PresentationPage() {
                                     })
                                   }
                                   className={cn(
-                                    "flex size-8 items-center justify-center rounded-md hover:bg-muted",
+                                    "flex size-7 items-center justify-center rounded-md hover:bg-muted",
                                     selectedTextElement.fontWeight >= 600
                                       ? "bg-primary/10 text-primary"
                                       : "text-foreground",
@@ -1408,7 +1544,7 @@ export default function PresentationPage() {
                                     })
                                   }
                                   className={cn(
-                                    "flex size-8 items-center justify-center rounded-md hover:bg-muted",
+                                    "flex size-7 items-center justify-center rounded-md hover:bg-muted",
                                     selectedTextElement.fontStyle === "italic"
                                       ? "bg-primary/10 text-primary"
                                       : "text-foreground",
@@ -1419,7 +1555,7 @@ export default function PresentationPage() {
                               </>
                             )}
 
-                            <label className="relative flex size-8 cursor-pointer items-center justify-center rounded-md border border-border/70 hover:bg-muted">
+                            <label className="relative flex size-7 cursor-pointer items-center justify-center rounded-md border border-border/70 hover:bg-muted">
                               <Palette className="size-4 text-foreground" />
                               <input
                                 type="color"
@@ -1435,13 +1571,13 @@ export default function PresentationPage() {
 
                             <button
                               onClick={() => adjustLineHeight(-0.05)}
-                              className="flex size-8 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
+                              className="flex size-7 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
                             >
                               <ArrowUpDown className="size-4" />
                             </button>
                             <button
                               onClick={() => adjustLineHeight(0.05)}
-                              className="flex size-8 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
+                              className="flex size-7 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
                             >
                               <ArrowUpDown className="size-4 rotate-180" />
                             </button>
@@ -1452,7 +1588,7 @@ export default function PresentationPage() {
                                   onClick={() =>
                                     adjustSelectedStyle({ align: "left" })
                                   }
-                                  className="flex size-8 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
+                                  className="flex size-7 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
                                 >
                                   <AlignLeft className="size-4" />
                                 </button>
@@ -1460,7 +1596,7 @@ export default function PresentationPage() {
                                   onClick={() =>
                                     adjustSelectedStyle({ align: "center" })
                                   }
-                                  className="flex size-8 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
+                                  className="flex size-7 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
                                 >
                                   <AlignCenter className="size-4" />
                                 </button>
@@ -1468,7 +1604,7 @@ export default function PresentationPage() {
                                   onClick={() =>
                                     adjustSelectedStyle({ align: "right" })
                                   }
-                                  className="flex size-8 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
+                                  className="flex size-7 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
                                 >
                                   <AlignRight className="size-4" />
                                 </button>
@@ -1480,10 +1616,10 @@ export default function PresentationPage() {
                     )}
 
                     {selectedShapeElement && (
-                      <div className="flex items-center gap-1 rounded-lg border border-border/70 bg-background px-1 py-0.5">
+                      <div className="flex h-9 shrink-0 items-center gap-0.5 rounded-md border border-border/70 bg-background px-1">
                         <button
                           onClick={() => toggleToolbarGroup("shape")}
-                          className="rounded-md px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-muted"
+                          className="h-7 rounded-md px-2 text-[11px] font-semibold text-foreground hover:bg-muted"
                         >
                           Forme {collapsedGroups.shape ? "+" : "-"}
                         </button>
@@ -1500,7 +1636,7 @@ export default function PresentationPage() {
                                 })
                               }
                               className={cn(
-                                "rounded-md px-2 py-1 text-[11px] font-semibold",
+                                "h-7 rounded-md px-2 text-[11px] font-semibold leading-none",
                                 selectedShapeElement.shape === "rect"
                                   ? "bg-primary/10 text-primary"
                                   : "text-foreground hover:bg-muted",
@@ -1516,7 +1652,7 @@ export default function PresentationPage() {
                                 })
                               }
                               className={cn(
-                                "rounded-md px-2 py-1 text-[11px] font-semibold",
+                                "h-7 rounded-md px-2 text-[11px] font-semibold leading-none",
                                 selectedShapeElement.shape === "ellipse"
                                   ? "bg-primary/10 text-primary"
                                   : "text-foreground hover:bg-muted",
@@ -1536,14 +1672,14 @@ export default function PresentationPage() {
                                 )
                               }
                               placeholder="Texte de forme"
-                              className="h-8 w-34 rounded-md border border-border/70 bg-background px-2 text-xs outline-none focus-visible:border-ring"
+                              className="h-7 w-28 rounded-md border border-border/70 bg-background px-2 text-xs outline-none focus-visible:border-ring"
                             />
 
                             <button
                               onClick={() =>
                                 adjustSelectedStyle({ textAlign: "left" })
                               }
-                              className="flex size-8 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
+                              className="flex size-7 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
                             >
                               <AlignLeft className="size-4" />
                             </button>
@@ -1551,7 +1687,7 @@ export default function PresentationPage() {
                               onClick={() =>
                                 adjustSelectedStyle({ textAlign: "center" })
                               }
-                              className="flex size-8 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
+                              className="flex size-7 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
                             >
                               <AlignCenter className="size-4" />
                             </button>
@@ -1559,12 +1695,12 @@ export default function PresentationPage() {
                               onClick={() =>
                                 adjustSelectedStyle({ textAlign: "right" })
                               }
-                              className="flex size-8 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
+                              className="flex size-7 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
                             >
                               <AlignRight className="size-4" />
                             </button>
 
-                            <label className="relative flex size-8 cursor-pointer items-center justify-center rounded-md border border-border/70 hover:bg-muted">
+                            <label className="relative flex size-7 cursor-pointer items-center justify-center rounded-md border border-border/70 hover:bg-muted">
                               <Palette className="size-4 text-foreground" />
                               <input
                                 type="color"
@@ -1584,6 +1720,294 @@ export default function PresentationPage() {
                   </div>
                 </div>
               </TransformComponent>
+              <div
+                className={cn(
+                  "pointer-events-auto absolute left-1/2 top-4 z-40 hidden -translate-x-1/2 items-center gap-1.5 overflow-visible whitespace-nowrap rounded-lg border border-border/70 bg-background/95 px-2 py-1 shadow-sm backdrop-blur-md",
+                  selectedElement && "md:flex",
+                )}
+                onMouseDown={(event) => {
+                  event.stopPropagation();
+                }}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+              >
+                <div className="flex h-9 shrink-0 items-center gap-0.5 rounded-md border border-border/70 bg-background px-1">
+                  <button
+                    onClick={() => toggleToolbarGroup("common")}
+                    className="h-7 rounded-md px-2 text-[11px] font-semibold text-foreground hover:bg-muted"
+                  >
+                    Opacite {collapsedGroups.common ? "+" : "-"}
+                  </button>
+                  {!collapsedGroups.common && selectedElement && (
+                    <>
+                      <button
+                        onClick={() =>
+                          adjustSelectedStyle({
+                            opacity: Math.max(
+                              0.05,
+                              Number(
+                                (selectedElement.opacity - 0.05).toFixed(2),
+                              ),
+                            ),
+                          })
+                        }
+                        className="flex size-7 items-center justify-center rounded-md text-foreground hover:bg-muted"
+                      >
+                        <Minus className="size-4" />
+                      </button>
+                      <span className="min-w-9 text-center text-xs font-semibold leading-none text-foreground tabular-nums">
+                        {Math.round(selectedElement.opacity * 100)}%
+                      </span>
+                      <button
+                        onClick={() =>
+                          adjustSelectedStyle({
+                            opacity: Math.min(
+                              1,
+                              Number(
+                                (selectedElement.opacity + 0.05).toFixed(2),
+                              ),
+                            ),
+                          })
+                        }
+                        className="flex size-7 items-center justify-center rounded-md text-foreground hover:bg-muted"
+                      >
+                        <Plus className="size-4" />
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {selectedTextElement && (
+                  <div className="flex h-9 shrink-0 items-center gap-0.5 rounded-md border border-border/70 bg-background px-1">
+                    <button
+                      onClick={() => toggleToolbarGroup("text")}
+                      className="h-7 rounded-md px-2 text-[11px] font-semibold text-foreground hover:bg-muted"
+                    >
+                      Texte {collapsedGroups.text ? "+" : "-"}
+                    </button>
+                    {!collapsedGroups.text && (
+                      <>
+                        <button
+                          onClick={() => adjustFontSize(-1)}
+                          className="flex size-7 items-center justify-center rounded-md text-foreground hover:bg-muted"
+                        >
+                          <Minus className="size-4" />
+                        </button>
+                        <span className="min-w-8 text-center text-xs font-semibold leading-none text-foreground tabular-nums">
+                          {Math.round(selectedTextElement.fontSize)}
+                        </span>
+                        <button
+                          onClick={() => adjustFontSize(1)}
+                          className="flex size-7 items-center justify-center rounded-md text-foreground hover:bg-muted"
+                        >
+                          <Plus className="size-4" />
+                        </button>
+
+                        {selectedTextElement.type === "text" && (
+                          <>
+                            <button
+                              onClick={() =>
+                                adjustSelectedStyle({
+                                  fontWeight:
+                                    selectedTextElement.fontWeight >= 600
+                                      ? 500
+                                      : 700,
+                                })
+                              }
+                              className={cn(
+                                "flex size-7 items-center justify-center rounded-md hover:bg-muted",
+                                selectedTextElement.fontWeight >= 600
+                                  ? "bg-primary/10 text-primary"
+                                  : "text-foreground",
+                              )}
+                            >
+                              <Bold className="size-4" />
+                            </button>
+                            <button
+                              onClick={() =>
+                                adjustSelectedStyle({
+                                  fontStyle:
+                                    selectedTextElement.fontStyle === "italic"
+                                      ? "normal"
+                                      : "italic",
+                                })
+                              }
+                              className={cn(
+                                "flex size-7 items-center justify-center rounded-md hover:bg-muted",
+                                selectedTextElement.fontStyle === "italic"
+                                  ? "bg-primary/10 text-primary"
+                                  : "text-foreground",
+                              )}
+                            >
+                              <Italic className="size-4" />
+                            </button>
+                          </>
+                        )}
+
+                        <label className="relative flex size-7 cursor-pointer items-center justify-center rounded-md border border-border/70 hover:bg-muted">
+                          <Palette className="size-4 text-foreground" />
+                          <input
+                            type="color"
+                            value={selectedTextElement.color}
+                            onChange={(event) =>
+                              adjustSelectedStyle({
+                                color: event.target.value,
+                              })
+                            }
+                            className="absolute inset-0 cursor-pointer opacity-0"
+                          />
+                        </label>
+
+                        <button
+                          onClick={() => adjustLineHeight(-0.05)}
+                          className="flex size-7 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
+                        >
+                          <ArrowUpDown className="size-4" />
+                        </button>
+                        <button
+                          onClick={() => adjustLineHeight(0.05)}
+                          className="flex size-7 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
+                        >
+                          <ArrowUpDown className="size-4 rotate-180" />
+                        </button>
+
+                        {selectedTextElement.type === "text" && (
+                          <>
+                            <button
+                              onClick={() =>
+                                adjustSelectedStyle({ align: "left" })
+                              }
+                              className="flex size-7 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
+                            >
+                              <AlignLeft className="size-4" />
+                            </button>
+                            <button
+                              onClick={() =>
+                                adjustSelectedStyle({ align: "center" })
+                              }
+                              className="flex size-7 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
+                            >
+                              <AlignCenter className="size-4" />
+                            </button>
+                            <button
+                              onClick={() =>
+                                adjustSelectedStyle({ align: "right" })
+                              }
+                              className="flex size-7 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
+                            >
+                              <AlignRight className="size-4" />
+                            </button>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {selectedShapeElement && (
+                  <div className="flex h-9 shrink-0 items-center gap-0.5 rounded-md border border-border/70 bg-background px-1">
+                    <button
+                      onClick={() => toggleToolbarGroup("shape")}
+                      className="h-7 rounded-md px-2 text-[11px] font-semibold text-foreground hover:bg-muted"
+                    >
+                      Forme {collapsedGroups.shape ? "+" : "-"}
+                    </button>
+                    {!collapsedGroups.shape && (
+                      <>
+                        <button
+                          onClick={() =>
+                            adjustSelectedStyle({
+                              shape: "rect",
+                              cornerRadius: Math.max(
+                                12,
+                                selectedShapeElement.cornerRadius,
+                              ),
+                            })
+                          }
+                          className={cn(
+                            "h-7 rounded-md px-2 text-[11px] font-semibold leading-none",
+                            selectedShapeElement.shape === "rect"
+                              ? "bg-primary/10 text-primary"
+                              : "text-foreground hover:bg-muted",
+                          )}
+                        >
+                          Rect
+                        </button>
+                        <button
+                          onClick={() =>
+                            adjustSelectedStyle({
+                              shape: "ellipse",
+                              cornerRadius: 0,
+                            })
+                          }
+                          className={cn(
+                            "h-7 rounded-md px-2 text-[11px] font-semibold leading-none",
+                            selectedShapeElement.shape === "ellipse"
+                              ? "bg-primary/10 text-primary"
+                              : "text-foreground hover:bg-muted",
+                          )}
+                        >
+                          Cercle
+                        </button>
+
+                        <input
+                          type="text"
+                          value={selectedShapeElement.label}
+                          onChange={(event) =>
+                            updateTextElementContent(
+                              safeCurrentSlide,
+                              selectedShapeElement.id,
+                              event.target.value,
+                            )
+                          }
+                          placeholder="Texte de forme"
+                          className="h-7 w-28 rounded-md border border-border/70 bg-background px-2 text-xs outline-none focus-visible:border-ring"
+                        />
+
+                        <button
+                          onClick={() =>
+                            adjustSelectedStyle({ textAlign: "left" })
+                          }
+                          className="flex size-7 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
+                        >
+                          <AlignLeft className="size-4" />
+                        </button>
+                        <button
+                          onClick={() =>
+                            adjustSelectedStyle({ textAlign: "center" })
+                          }
+                          className="flex size-7 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
+                        >
+                          <AlignCenter className="size-4" />
+                        </button>
+                        <button
+                          onClick={() =>
+                            adjustSelectedStyle({ textAlign: "right" })
+                          }
+                          className="flex size-7 items-center justify-center rounded-md border border-border/70 text-foreground hover:bg-muted"
+                        >
+                          <AlignRight className="size-4" />
+                        </button>
+
+                        <label className="relative flex size-7 cursor-pointer items-center justify-center rounded-md border border-border/70 hover:bg-muted">
+                          <Palette className="size-4 text-foreground" />
+                          <input
+                            type="color"
+                            value={selectedShapeElement.fill}
+                            onChange={(event) =>
+                              adjustSelectedStyle({
+                                fill: event.target.value,
+                              })
+                            }
+                            className="absolute inset-0 cursor-pointer opacity-0"
+                          />
+                        </label>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
               <ZoomControls zoom={workspaceZoom} />
             </TransformWrapper>
           </div>
