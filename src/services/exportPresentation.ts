@@ -56,6 +56,10 @@ const TEXT_PROPS = [
   "wordBreak",
 ] as const;
 
+function toCssPropertyName(property: string): string {
+  return property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+}
+
 // Cache shared across all slides in one export run.
 const _colorCache = new Map<string, string>();
 
@@ -142,7 +146,7 @@ function bakeComputedStyles(root: HTMLElement): void {
     // iframe renders spacing/sizing identically regardless of which font loads.
     for (const p of TEXT_PROPS) {
       const raw = cs[p];
-      if (raw) el.style[p as keyof CSSStyleDeclaration] = raw as never;
+      if (raw) el.style.setProperty(toCssPropertyName(p), raw);
     }
   }
 }
@@ -342,6 +346,8 @@ async function captureCurrentSlide(
   return renderInIframe(clone, W, H, bgColor);
 }
 
+void captureCurrentSlide;
+
 /* ------------------------------------------------------------------ */
 /*  Off-screen scene render (no DOM navigation needed)                  */
 /* ------------------------------------------------------------------ */
@@ -383,6 +389,7 @@ export async function exportToPdf(
   presentation: Presentation,
   _setSlide: (index: number) => void,
 ): Promise<void> {
+  void _setSlide;
   _colorCache.clear();
   const slides = presentation.slides;
   if (!slides || slides.length === 0)
@@ -747,6 +754,7 @@ export async function exportToPptx(
   presentation: Presentation,
   _setSlide: (index: number) => void,
 ): Promise<void> {
+  void _setSlide;
   const slides = presentation.slides;
   if (!slides || slides.length === 0)
     throw new Error("Aucune slide a exporter.");

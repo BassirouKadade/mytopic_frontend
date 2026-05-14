@@ -1,8 +1,5 @@
 import type { Slide, EditorScene, SlideElement } from "@/services/api";
-import testImageUrl from "@/assets/image-test.jpeg";
-
 import {
-  DEFAULT_SCENE_VERSION,
   DEFAULT_SCENE_WIDTH,
   DEFAULT_SCENE_HEIGHT,
   createTextElement,
@@ -38,7 +35,7 @@ function cleanText(text: string): string {
 
 function scene(elements: SlideElement[], background = "#ffffff"): EditorScene {
   return {
-    version: DEFAULT_SCENE_VERSION,
+    version: "1.2",
     width: DEFAULT_SCENE_WIDTH,
     height: DEFAULT_SCENE_HEIGHT,
     background,
@@ -67,6 +64,9 @@ const INK = "#111827";
 const BODY = "#374151";
 const MUTED = "#f4f4f5";
 const BLUE_DOT = "#174b83";
+const CARD_BORDER = "#dbe3ec";
+const SLIDE_PAD_X = 120;
+const IMAGE_FRAME = "#eef3f7";
 
 function estimateLineCount(text: string, width: number, fontSize: number) {
   const charsPerLine = Math.max(12, Math.floor(width / (fontSize * 0.52)));
@@ -78,6 +78,54 @@ function shouldKeepImage(semantic: string): boolean {
     semantic === "cover.title" ||
     semantic.startsWith("visual.") ||
     semantic === "business.product_feature"
+  );
+}
+
+function hasUsableVisualPrompt(slide: Slide): boolean {
+  const prompt = (slide.suggested_visual ?? "").trim().toLowerCase();
+  return (
+    prompt.length >= 24 &&
+    prompt !== "null" &&
+    prompt !== "none" &&
+    prompt !== "n/a" &&
+    !prompt.includes("no visual") &&
+    !prompt.includes("aucun visuel")
+  );
+}
+
+function shouldUseImageForSlide(slide: Slide, semantic: string): boolean {
+  if (slide.slide_type === "agenda" || semantic === "section.agenda") {
+    return false;
+  }
+
+  if (shouldKeepImage(semantic)) {
+    return true;
+  }
+
+  if (!hasUsableVisualPrompt(slide)) {
+    return false;
+  }
+
+  if (
+    semantic.startsWith("data.") ||
+    semantic.startsWith("diagram.") ||
+    semantic.startsWith("list.") ||
+    semantic === "section.transition" ||
+    semantic === "content.quote" ||
+    semantic === "academic.qa" ||
+    semantic === "closure.conclusion" ||
+    semantic === "closure.thank_you"
+  ) {
+    return false;
+  }
+
+  return (
+    semantic === "content.paragraph" ||
+    semantic === "content.multi_paragraph" ||
+    semantic === "content.info_box" ||
+    semantic === "academic.explanation" ||
+    semantic === "academic.case_study" ||
+    semantic === "business.use_case"
   );
 }
 
@@ -145,12 +193,89 @@ function compactText(items: string[], max = 4): string {
     .join("\n");
 }
 
+function splitCoverMeta(items: string[]): string[] {
+  return items
+    .flatMap((item) => item.split(/\s+\|\s+|[•·]/g))
+    .map((item) => cleanText(item).replace(/^(author|auteur|date|cours|course|institution)\s*:\s*/i, ""))
+    .filter((item) => item.length > 0)
+    .slice(0, 4);
+}
+
+function getTextHeight(text: string, width: number, fontSize: number, max = 190) {
+  return Math.min(
+    max,
+    Math.ceil(estimateLineCount(text, width, fontSize) * fontSize * 1.18 + 18),
+  );
+}
+
+function getImageSide(index: number): "left" | "right" {
+  return index % 2 === 0 ? "right" : "left";
+}
+
+function addEditorialImageBlock(
+  els: SlideElement[],
+  index: number,
+  side: "left" | "right",
+  options?: {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    fit?: "cover" | "contain";
+    alt?: string;
+  },
+): void {
+  const x = options?.x ?? (side === "left" ? 112 : 928);
+  const y = options?.y ?? 92;
+  const width = options?.width ?? 552;
+  const height = options?.height ?? 704;
+  const framePad = 18;
+
+  els.push(
+    createShapeElement(`image-frame-${index}`, 3, {
+      x: x - framePad,
+      y: y - framePad,
+      width: width + framePad * 2,
+      height: height + framePad * 2,
+      shape: "rect",
+      fill: IMAGE_FRAME,
+      stroke: "#d9e3ec",
+      strokeWidth: 1,
+      cornerRadius: 24,
+    }),
+    createShapeElement(`image-accent-${index}`, 4, {
+      x: side === "left" ? x + width + 34 : x - 50,
+      y: y + 34,
+      width: 8,
+      height: 156,
+      shape: "rect",
+      fill: GREEN,
+      stroke: "transparent",
+      strokeWidth: 0,
+      cornerRadius: 8,
+    }),
+    createMediaElement(`media-${index}`, 5, {
+      x,
+      y,
+      width,
+      height,
+      mediaKind: "image",
+      fit: options?.fit ?? "cover",
+      borderRadius: 18,
+      src: "",
+      alt: options?.alt || "Visual",
+      background: "#e5e7eb",
+    }),
+  );
+}
+
 function finalizeScene(
   draft: EditorScene,
   index: number,
   semantic: string,
+  slide: Slide,
 ): EditorScene {
-  const keepImage = shouldKeepImage(semantic);
+  const keepImage = shouldUseImageForSlide(slide, semantic);
   let elements = draft.elements
     .filter((element) => keepImage || element.type !== "media")
     .map((element) => {
@@ -165,8 +290,7 @@ function finalizeScene(
       if (element.type === "media") {
         return {
           ...element,
-          src: element.src || testImageUrl,
-          alt: element.alt || "Image de test",
+          alt: element.alt || slide.suggested_visual || slide.title,
         };
       }
       if (element.type === "text") {
@@ -177,7 +301,7 @@ function finalizeScene(
           element.id.startsWith("attr-");
         const fontSize = keepSmall
           ? element.fontSize
-          : Math.max(element.fontSize, isMainTitle ? 54 : 24);
+          : Math.max(element.fontSize, isMainTitle ? 48 : 18);
         const lineHeight = element.lineHeight || 1.2;
         const lineCount = estimateLineCount(element.text, element.width, fontSize);
         const minHeight = Math.ceil(lineCount * fontSize * lineHeight + 14);
@@ -193,7 +317,7 @@ function finalizeScene(
         return {
           ...element,
           fontFamily: PRESENTATION_FONT,
-          fontSize: Math.max(element.fontSize, 28),
+          fontSize: Math.max(element.fontSize, 22),
           height: Math.max(element.height, 220),
         };
       }
@@ -207,7 +331,7 @@ function finalizeScene(
       if (element.type === "shape" && element.label) {
         return {
           ...element,
-          fontSize: Math.max(element.fontSize, 20),
+          fontSize: Math.max(element.fontSize, 16),
         };
       }
       return element;
@@ -221,6 +345,9 @@ function finalizeScene(
     elements = elements.map((element) => {
       if (
         element.id === titleElement.id ||
+        element.type === "media" ||
+        element.id.startsWith("image-frame-") ||
+        element.id.startsWith("image-accent-") ||
         element.id.startsWith("page-") ||
         element.id.startsWith("dot-") ||
         element.y <= titleElement.y ||
@@ -253,15 +380,18 @@ function finalizeScene(
 function buildCoverScene(slide: Slide, index: number): EditorScene {
   const els: SlideElement[] = [];
   const hasImage = shouldKeepImage(slide.semantic_type);
-  const titleX = hasImage ? 740 : 240;
-  const titleWidth = hasImage ? 720 : 1120;
+  const titleX = hasImage ? 770 : 220;
+  const titleWidth = hasImage ? 650 : 1160;
   const titleFont =
-    slide.title.length > 92 ? 52 : slide.title.length > 64 ? 60 : 70;
+    slide.title.length > 96 ? 46 : slide.title.length > 68 ? 54 : 64;
   const titleLines = estimateLineCount(slide.title, titleWidth, titleFont);
-  const titleHeight = Math.min(320, Math.ceil(titleLines * titleFont * 1.18));
-  const titleY = titleLines >= 4 ? 235 : titleLines >= 3 ? 265 : 300;
-  const subtitleY = titleY + titleHeight + 42;
-  const metaY = subtitleY + (slide.purpose ? 92 : 34);
+  const titleHeight = Math.min(300, Math.ceil(titleLines * titleFont * 1.12));
+  const titleY = hasImage ? 270 : 250;
+  const subtitleY = titleY + titleHeight + 28;
+  const metaItems = splitCoverMeta(slide.main_content);
+  const metaTop = 642;
+  const metaCardWidth = hasImage ? 300 : 270;
+  const metaCardGap = 18;
 
   els.push(
     createBackgroundElement(`bg-${index}`, 0, {
@@ -276,36 +406,41 @@ function buildCoverScene(slide: Slide, index: number): EditorScene {
   );
 
   if (hasImage) {
-    els.push(
-      createMediaElement(`cover-media-${index}`, 1, {
-        x: 95,
-        y: 70,
-        width: 560,
-        height: 760,
-        mediaKind: "image",
-        fit: "cover",
-        borderRadius: 0,
-        src: testImageUrl,
-        alt: slide.suggested_visual ?? "Image de test",
-        background: "#e5e7eb",
-      }),
-    );
+    addEditorialImageBlock(els, index, "left", {
+      x: 96,
+      y: 78,
+      width: 568,
+      height: 744,
+      fit: "cover",
+      alt: slide.suggested_visual ?? slide.title,
+    });
   }
 
   els.push(
-    createShapeElement(`tag-${index}`, 2, {
+    createShapeElement(`cover-kicker-rule-${index}`, 2, {
       x: titleX,
-      y: 140,
-      width: 132,
-      height: 42,
+      y: 150,
+      width: 110,
+      height: 6,
+      shape: "rect",
+      fill: GREEN,
+      stroke: "transparent",
+      strokeWidth: 0,
+      cornerRadius: 6,
+    }),
+    createShapeElement(`tag-${index}`, 3, {
+      x: titleX,
+      y: 174,
+      width: 148,
+      height: 34,
       shape: "rect",
       fill: "#ffffff",
       stroke: GREEN,
-      strokeWidth: 1.5,
-      cornerRadius: 2,
+      strokeWidth: 1.2,
+      cornerRadius: 4,
       label: "PRESENTATION",
       textColor: GREEN,
-      fontSize: 17,
+      fontSize: 14,
       fontWeight: 700,
     }),
   );
@@ -317,10 +452,10 @@ function buildCoverScene(slide: Slide, index: number): EditorScene {
       width: titleWidth,
       height: titleHeight,
       fontSize: titleFont,
-      fontWeight: 500,
+      fontWeight: 800,
       align: "left",
       color: INK,
-      lineHeight: 1.16,
+      lineHeight: 1.08,
     }),
   );
 
@@ -330,31 +465,67 @@ function buildCoverScene(slide: Slide, index: number): EditorScene {
       createTextElement(`subtitle-${index}`, subtitle, 3, {
         x: titleX,
         y: subtitleY,
-        width: hasImage ? 720 : 980,
-        height: 80,
-        fontSize: 26,
+        width: titleWidth,
+        height: 88,
+        fontSize: 25,
         fontWeight: 400,
         align: "left",
-        color: "#3f3f46",
+        color: "#4b5563",
+        lineHeight: 1.25,
       }),
     );
   }
 
-  if (slide.main_content.length > 0) {
-    const meta = slide.main_content.slice(0, 2).join("   |   ");
+  const metaLabels = ["Sujet", "Auteur", "Date", "Contexte"];
+  const fallbackDate = new Date().toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+  const normalizedMeta =
+    metaItems.length > 0
+      ? metaItems
+      : [slide.title, "Nom Prenom", fallbackDate, "Presentation academique"];
+
+  normalizedMeta.slice(0, hasImage ? 2 : 4).forEach((item, i) => {
+    const x = hasImage
+      ? titleX + i * (metaCardWidth + metaCardGap)
+      : titleX + i * (metaCardWidth + metaCardGap);
+    const y = hasImage ? metaTop : 650;
     els.push(
-      createTextElement(`meta-${index}`, meta, 4, {
-        x: titleX,
-        y: metaY,
-        width: hasImage ? 720 : 980,
-        height: 50,
-        fontSize: 22,
-        fontWeight: 400,
-        align: "left",
-        color: "#52525b",
+      createShapeElement(`meta-card-${index}-${i}`, 10 + i * 3, {
+        x,
+        y,
+        width: metaCardWidth,
+        height: 92,
+        shape: "rect",
+        fill: "#f8fafc",
+        stroke: CARD_BORDER,
+        strokeWidth: 1,
+        cornerRadius: 14,
+      }),
+      createTextElement(`meta-label-${index}-${i}`, metaLabels[i] ?? "Info", 11 + i * 3, {
+        x: x + 22,
+        y: y + 18,
+        width: metaCardWidth - 44,
+        height: 20,
+        fontSize: 13,
+        fontWeight: 800,
+        color: GREEN,
+        lineHeight: 1,
+      }),
+      createTextElement(`meta-value-${index}-${i}`, item, 12 + i * 3, {
+        x: x + 22,
+        y: y + 43,
+        width: metaCardWidth - 44,
+        height: 34,
+        fontSize: 18,
+        fontWeight: 600,
+        color: "#111827",
+        lineHeight: 1.15,
       }),
     );
-  }
+  });
 
   return scene(els);
 }
@@ -621,15 +792,13 @@ function buildDefinitionScene(slide: Slide, index: number): EditorScene {
     }),
   );
 
-  addSoftRings(els, index);
-
   els.push(
     createTextElement(`title-${index}`, slide.title, 4, {
       x: 170,
-      y: 78,
+      y: 82,
       width: 1160,
       height: 96,
-      fontSize: 44,
+      fontSize: 54,
       fontWeight: 800,
       color: "#111827",
       lineHeight: 1.12,
@@ -637,43 +806,119 @@ function buildDefinitionScene(slide: Slide, index: number): EditorScene {
   );
 
   const items = defs.slice(0, 4);
-  items.forEach((def, i) => {
+  if (items.length === 1) {
+    const def = items[0];
     els.push(
-      createShapeElement(`term-${index}-${i}`, 5 + i * 3, {
+      createShapeElement(`def-hero-${index}`, 5, {
         x: 170,
-        y: 220 + i * 116,
-        width: 330,
-        height: 86,
+        y: 255,
+        width: 1180,
+        height: 330,
         shape: "rect",
-        fill: "#f1f5f9",
-        cornerRadius: 8,
-        stroke: "#e2e8f0",
+        fill: "#f8fafc",
+        cornerRadius: 24,
+        stroke: CARD_BORDER,
         strokeWidth: 1,
-        label: def.term,
-        textColor: "#0f172a",
-        fontSize: 18,
-        fontWeight: 700,
       }),
-      createShapeElement(`def-rule-${index}-${i}`, 6 + i * 3, {
-        x: 530,
-        y: 258 + i * 116,
-        width: 28,
-        height: 3,
+      createShapeElement(`def-hero-accent-${index}`, 6, {
+        x: 170,
+        y: 255,
+        width: 14,
+        height: 330,
         shape: "rect",
-        fill: "#cbd5e1",
+        fill: "#f59e0b",
+        cornerRadius: 14,
         stroke: "transparent",
         strokeWidth: 0,
-        cornerRadius: 2,
       }),
-      createTextElement(`expl-${index}-${i}`, def.explanation, 7 + i * 3, {
-        x: 580,
-        y: 232 + i * 116,
-        width: 840,
-        height: 76,
-        fontSize: 25,
-        fontWeight: 400,
-        color: "#475569",
-        lineHeight: 1.16,
+      createTextElement(`term-${index}-0`, def.term, 7, {
+        x: 235,
+        y: 310,
+        width: 430,
+        height: 120,
+        fontSize: 38,
+        fontWeight: 850,
+        color: "#111827",
+        lineHeight: 1.1,
+      }),
+      createShapeElement(`def-divider-${index}`, 8, {
+        x: 700,
+        y: 310,
+        width: 2,
+        height: 220,
+        shape: "rect",
+        fill: "#dbe3ec",
+        stroke: "transparent",
+        strokeWidth: 0,
+      }),
+      createTextElement(`expl-${index}-0`, def.explanation, 9, {
+        x: 750,
+        y: 300,
+        width: 520,
+        height: 250,
+        fontSize: 34,
+        fontWeight: 500,
+        color: "#263241",
+        lineHeight: 1.22,
+      }),
+    );
+
+    addFooter(els, index);
+    return scene(els);
+  }
+
+  items.forEach((def, i) => {
+    const cols = items.length <= 2 ? items.length : 2;
+    const cardW = cols === 1 ? 1180 : 570;
+    const cardH = items.length <= 2 ? 230 : 210;
+    const gapX = 40;
+    const gapY = 34;
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = 170 + col * (cardW + gapX);
+    const y = (items.length <= 2 ? 285 : 235) + row * (cardH + gapY);
+    els.push(
+      createShapeElement(`def-card-${index}-${i}`, 5 + i * 4, {
+        x,
+        y,
+        width: cardW,
+        height: cardH,
+        shape: "rect",
+        fill: "#f8fafc",
+        cornerRadius: 18,
+        stroke: CARD_BORDER,
+        strokeWidth: 1,
+      }),
+      createShapeElement(`def-accent-${index}-${i}`, 6 + i * 4, {
+        x,
+        y,
+        width: 12,
+        height: cardH,
+        shape: "rect",
+        fill: i === items.length - 1 ? "#f59e0b" : BLUE_DOT,
+        cornerRadius: 12,
+        stroke: "transparent",
+        strokeWidth: 0,
+      }),
+      createTextElement(`term-${index}-${i}`, def.term, 7 + i * 4, {
+        x: x + 42,
+        y: y + 34,
+        width: cardW - 84,
+        height: 58,
+        fontSize: items.length <= 2 ? 32 : 27,
+        fontWeight: 850,
+        color: "#111827",
+        lineHeight: 1.12,
+      }),
+      createTextElement(`expl-${index}-${i}`, def.explanation, 8 + i * 4, {
+        x: x + 42,
+        y: y + 104,
+        width: cardW - 84,
+        height: cardH - 128,
+        fontSize: items.length <= 2 ? 29 : 24,
+        fontWeight: 450,
+        color: "#263241",
+        lineHeight: 1.22,
       }),
     );
   });
@@ -842,12 +1087,12 @@ function buildComparisonScene(slide: Slide, index: number): EditorScene {
 
   els.push(
     createTextElement(`title-${index}`, slide.title, 1, {
-      x: 520,
-      y: 78,
-      width: 900,
+      x: 170,
+      y: 82,
+      width: 1160,
       height: 120,
-      fontSize: 48,
-      fontWeight: 400,
+      fontSize: 54,
+      fontWeight: 800,
       color: "#111827",
       lineHeight: 1.15,
     }),
@@ -858,50 +1103,59 @@ function buildComparisonScene(slide: Slide, index: number): EditorScene {
   const right = items.slice(Math.ceil(items.length / 2));
 
   [
-    { label: "Arguments POUR", items: left, x: 520, color: "#38bdf8" },
-    { label: "Arguments CONTRE", items: right, x: 930, color: "#fb923c" },
+    { label: "Arguments POUR", items: left, x: 170, color: BLUE_DOT },
+    { label: "Arguments CONTRE", items: right, x: 810, color: "#f59e0b" },
   ].forEach((col, colIndex) => {
     els.push(
-      createTextElement(`compare-label-${index}-${colIndex}`, col.label, 2 + colIndex, {
+      createShapeElement(`compare-card-${index}-${colIndex}`, 2 + colIndex * 4, {
         x: col.x,
-        y: 610,
-        width: 330,
-        height: 34,
-        fontSize: 21,
-        fontWeight: 500,
-        color: col.color,
+        y: 275,
+        width: 560,
+        height: 390,
+        shape: "rect",
+        fill: "#ffffff",
+        stroke: CARD_BORDER,
+        strokeWidth: 1,
+        cornerRadius: 12,
       }),
-      createListElement(`compare-list-${index}-${colIndex}`, 4 + colIndex, {
-        x: col.x,
-        y: 655,
-        width: 360,
-        height: 170,
-        ordered: false,
-        items: col.items.map((item) => `${item.title} ${item.description}`),
+      createShapeElement(`compare-accent-${index}-${colIndex}`, 3 + colIndex * 4, {
+        x: col.x + 28,
+        y: 310,
+        width: 6,
+        height: 300,
+        shape: "rect",
+        fill: col.color,
+        stroke: "transparent",
+        strokeWidth: 0,
+        cornerRadius: 6,
+      }),
+      createTextElement(`compare-label-${index}-${colIndex}`, col.label, 4 + colIndex * 4, {
+        x: col.x + 56,
+        y: 308,
+        width: 440,
+        height: 34,
         fontSize: 18,
-        fontWeight: 400,
-        color: "#3f3f46",
-        lineHeight: 1.28,
+        fontWeight: 800,
+        align: "left",
+        color: col.color,
+        lineHeight: 1.1,
+      }),
+      createListElement(`compare-list-${index}-${colIndex}`, 5 + colIndex * 4, {
+        x: col.x + 68,
+        y: 370,
+        width: 420,
+        height: 230,
+        ordered: false,
+        items: col.items.map((item) =>
+          [item.title, item.description].filter(Boolean).join(" - "),
+        ),
+        fontSize: 22,
+        fontWeight: 500,
+        color: "#334155",
+        lineHeight: 1.38,
       }),
     );
   });
-
-  if (slide.suggested_visual) {
-    els.push(
-      createMediaElement(`media-${index}`, 20, {
-        x: 105,
-        y: 70,
-        width: 520,
-        height: 760,
-        mediaKind: "image",
-        src: testImageUrl,
-        alt: slide.suggested_visual,
-        fit: "cover",
-        borderRadius: 0,
-        background: "#e5e7eb",
-      }),
-    );
-  }
 
   addFooter(els, index);
 
@@ -982,12 +1236,12 @@ function buildKpiScene(slide: Slide, index: number): EditorScene {
 
   els.push(
     createTextElement(`title-${index}`, slide.title, 1, {
-      x: 675,
-      y: 80,
-      width: 760,
+      x: 170,
+      y: 82,
+      width: 1160,
       height: 130,
-      fontSize: 45,
-      fontWeight: 400,
+      fontSize: 54,
+      fontWeight: 800,
       color: "#111827",
       lineHeight: 1.16,
     }),
@@ -996,67 +1250,75 @@ function buildKpiScene(slide: Slide, index: number): EditorScene {
   const metrics = getMetricItems(slide).slice(0, 4);
   metrics.forEach((m, i) => {
     const positions = [
-      { x: 735, y: 260 },
-      { x: 1090, y: 260 },
-      { x: 910, y: 420 },
-      { x: 910, y: 585 },
+      { x: 170, y: 245 },
+      { x: 810, y: 245 },
+      { x: 170, y: 495 },
+      { x: 810, y: 495 },
     ];
     const pos = positions[i] ?? positions[0];
     els.push(
-      createTextElement(`metric-value-${index}-${i}`, m.value || "--", 2 + i * 3, {
+      createShapeElement(`metric-card-${index}-${i}`, 2 + i * 5, {
         x: pos.x,
         y: pos.y,
-        width: 310,
-        height: 72,
-        fontSize: 54,
-        fontWeight: 400,
-        align: "center",
-        color: "#4b5563",
+        width: 560,
+        height: 190,
+        shape: "rect",
+        fill: "#ffffff",
+        stroke: CARD_BORDER,
+        strokeWidth: 1,
+        cornerRadius: 10,
       }),
-      createTextElement(`metric-label-${index}-${i}`, m.label, 3 + i * 3, {
+      createShapeElement(`metric-accent-${index}-${i}`, 3 + i * 5, {
         x: pos.x,
-        y: pos.y + 76,
-        width: 310,
+        y: pos.y,
+        width: 8,
+        height: 190,
+        shape: "rect",
+        fill: i % 2 === 0 ? BLUE_DOT : "#f59e0b",
+        stroke: "transparent",
+        strokeWidth: 0,
+        cornerRadius: 8,
+      }),
+      createTextElement(`metric-value-${index}-${i}`, m.value || "--", 4 + i * 5, {
+        x: pos.x + 40,
+        y: pos.y + 28,
+        width: 480,
+        height: 62,
+        fontSize: 48,
+        fontWeight: 800,
+        align: "left",
+        color: "#111827",
+        lineHeight: 1.05,
+      }),
+      createTextElement(`metric-label-${index}-${i}`, m.label, 5 + i * 5, {
+        x: pos.x + 42,
+        y: pos.y + 98,
+        width: 470,
         height: 34,
-        fontSize: 20,
-        fontWeight: 600,
-        align: "center",
-        color: "#52525b",
+        fontSize: 21,
+        fontWeight: 800,
+        align: "left",
+        color: "#334155",
+        lineHeight: 1.15,
       }),
     );
 
     if (m.note) {
       els.push(
-        createTextElement(`metric-note-${index}-${i}`, m.note, 4 + i * 3, {
-          x: pos.x,
-          y: pos.y + 112,
-          width: 310,
-          height: 36,
-          fontSize: 17,
+        createTextElement(`metric-note-${index}-${i}`, m.note, 6 + i * 5, {
+          x: pos.x + 42,
+          y: pos.y + 136,
+          width: 470,
+          height: 44,
+          fontSize: 18,
           fontWeight: 400,
-          align: "center",
-          color: "#52525b",
+          align: "left",
+          color: "#64748b",
+          lineHeight: 1.2,
         }),
       );
     }
   });
-
-  if (slide.suggested_visual) {
-    els.push(
-      createMediaElement(`media-${index}`, 30, {
-        x: 105,
-        y: 70,
-        width: 520,
-        height: 760,
-        mediaKind: "image",
-        src: testImageUrl,
-        alt: slide.suggested_visual,
-        fit: "cover",
-        borderRadius: 0,
-        background: "#e5e7eb",
-      }),
-    );
-  }
 
   addFooter(els, index);
 
@@ -1081,7 +1343,6 @@ function buildCardsScene(slide: Slide, index: number): EditorScene {
       pattern: "none",
     }),
   );
-  addSoftRings(els, index);
 
   els.push(
     createTextElement(`title-${index}`, slide.title, 4, {
@@ -1097,17 +1358,19 @@ function buildCardsScene(slide: Slide, index: number): EditorScene {
   );
 
   const cards = getCardItems(slide).slice(0, 4);
-  const cols = cards.length <= 1 ? 1 : 2;
-  const cardW = cols === 1 ? 1220 : 590;
-  const cardH = 210;
+  const cols = cards.length <= 2 ? cards.length || 1 : 2;
+  const cardW = cols === 1 ? 1180 : 570;
+  const cardH = cards.length <= 2 ? 260 : 205;
   const gapX = cols > 1 ? 40 : 0;
   const gapY = 34;
+  const startX = 170;
+  const startY = cards.length <= 2 ? 270 : 230;
 
   cards.forEach((card, i) => {
     const col = i % cols;
     const row = Math.floor(i / cols);
-    const cx = 170 + col * (cardW + gapX);
-    const cy = 230 + row * (cardH + gapY);
+    const cx = startX + col * (cardW + gapX);
+    const cy = startY + row * (cardH + gapY);
 
     els.push(
       createShapeElement(`card-${index}-${i}`, 5 + i * 3, {
@@ -1116,29 +1379,41 @@ function buildCardsScene(slide: Slide, index: number): EditorScene {
         width: cardW,
         height: cardH,
         shape: "rect",
-        fill: "#f8fafc",
-        stroke: "#e2e8f0",
+        fill: "#ffffff",
+        stroke: CARD_BORDER,
         strokeWidth: 1,
+        cornerRadius: 10,
+      }),
+      createShapeElement(`card-accent-${index}-${i}`, 6 + i * 3, {
+        x: cx,
+        y: cy,
+        width: 8,
+        height: cardH,
+        shape: "rect",
+        fill: i % 2 === 0 ? BLUE_DOT : "#f59e0b",
+        stroke: "transparent",
+        strokeWidth: 0,
         cornerRadius: 8,
       }),
-      createTextElement(`card-title-${index}-${i}`, card.title, 6 + i * 3, {
-        x: cx + 28,
-        y: cy + 28,
-        width: cardW - 56,
+      createTextElement(`card-title-${index}-${i}`, card.title, 7 + i * 3, {
+        x: cx + 36,
+        y: cy + 30,
+        width: cardW - 72,
         height: 42,
-        fontSize: 27,
+        fontSize: 25,
         fontWeight: 800,
         color: "#111827",
+        lineHeight: 1.12,
       }),
-      createTextElement(`card-desc-${index}-${i}`, card.description, 7 + i * 3, {
-        x: cx + 28,
-        y: cy + 82,
-        width: cardW - 56,
-        height: 100,
-        fontSize: 23,
+      createTextElement(`card-desc-${index}-${i}`, card.description, 8 + i * 3, {
+        x: cx + 36,
+        y: cy + 88,
+        width: cardW - 72,
+        height: cardH - 112,
+        fontSize: 21,
         fontWeight: 400,
-        color: BODY,
-        lineHeight: 1.18,
+        color: "#475569",
+        lineHeight: 1.22,
       }),
     );
   });
@@ -1152,8 +1427,14 @@ function buildCardsScene(slide: Slide, index: number): EditorScene {
 /*  Builder: Visual Split (text + image)                               */
 /* ------------------------------------------------------------------ */
 
-function buildVisualSplitScene(slide: Slide, index: number): EditorScene {
+function buildImageTextScene(slide: Slide, index: number): EditorScene {
   const els: SlideElement[] = [];
+  const imageSide = getImageSide(index);
+  const textX = imageSide === "left" ? 820 : SLIDE_PAD_X + 28;
+  const textWidth = 620;
+  const titleFont =
+    slide.title.length > 74 ? 46 : slide.title.length > 48 ? 52 : 58;
+  const titleHeight = getTextHeight(slide.title, textWidth, titleFont, 190);
 
   els.push(
     createBackgroundElement(`bg-${index}`, 0, {
@@ -1167,49 +1448,121 @@ function buildVisualSplitScene(slide: Slide, index: number): EditorScene {
     }),
   );
 
-  addSoftRings(els, index);
+  addEditorialImageBlock(els, index, imageSide, {
+    alt: slide.suggested_visual || slide.title,
+  });
 
   els.push(
     createTextElement(`title-${index}`, slide.title, 4, {
-      x: 170,
-      y: 245,
-      width: 650,
-      height: 92,
-      fontSize: 58,
+      x: textX,
+      y: 128,
+      width: textWidth,
+      height: titleHeight,
+      fontSize: titleFont,
       fontWeight: 800,
       color: NAVY,
-      lineHeight: 1.05,
+      lineHeight: 1.08,
+    }),
+  );
+
+  const paragraphs = getParagraphs(slide).slice(0, 3);
+  const contentY = 128 + titleHeight + 48;
+
+  paragraphs.forEach((paragraph, i) => {
+    const y = contentY + i * 118;
+    els.push(
+      createShapeElement(`insight-dot-${index}-${i}`, 6 + i * 3, {
+        x: textX,
+        y: y + 8,
+        width: 12,
+        height: 12,
+        shape: "ellipse",
+        fill: i === 0 ? GREEN : BLUE_DOT,
+        stroke: "transparent",
+        strokeWidth: 0,
+      }),
+      createTextElement(`para-${index}-${i}`, paragraph, 7 + i * 3, {
+        x: textX + 34,
+        y,
+        width: textWidth - 38,
+        height: 92,
+        fontSize: 25,
+        fontWeight: 400,
+        color: BODY,
+        lineHeight: 1.22,
+      }),
+    );
+  });
+
+  addFooter(els, index);
+
+  return scene(els);
+}
+
+function buildVisualSplitScene(slide: Slide, index: number): EditorScene {
+  const els: SlideElement[] = [];
+  const imageSide = getImageSide(index);
+  const textX = imageSide === "left" ? 830 : 150;
+  const titleFont =
+    slide.title.length > 74 ? 46 : slide.title.length > 48 ? 52 : 58;
+  const titleHeight = getTextHeight(slide.title, 590, titleFont, 180);
+
+  els.push(
+    createBackgroundElement(`bg-${index}`, 0, {
+      x: 0,
+      y: 0,
+      width: SCENE_W,
+      height: SCENE_H,
+      fill: "#ffffff",
+      accent: "#ffffff",
+      pattern: "none",
+    }),
+  );
+
+  addEditorialImageBlock(els, index, imageSide, {
+    alt: slide.suggested_visual || slide.title,
+  });
+
+  els.push(
+    createTextElement(`title-${index}`, slide.title, 6, {
+      x: textX,
+      y: 145,
+      width: 590,
+      height: titleHeight,
+      fontSize: titleFont,
+      fontWeight: 800,
+      color: NAVY,
+      lineHeight: 1.06,
     }),
   );
 
   const lead = compactText(getParagraphs(slide), 3);
   if (lead) {
     els.push(
-      createTextElement(`para-${index}`, lead, 5, {
-        x: 175,
-        y: 365,
-        width: 640,
-        height: 215,
-        fontSize: 27,
+      createTextElement(`para-${index}`, lead, 7, {
+        x: textX,
+        y: 145 + titleHeight + 46,
+        width: 590,
+        height: 250,
+        fontSize: 26,
         fontWeight: 400,
-        color: "#111111",
-        lineHeight: 1.16,
+        color: BODY,
+        lineHeight: 1.22,
       }),
     );
   }
 
   els.push(
-    createMediaElement(`media-${index}`, 6, {
-      x: 910,
-      y: 120,
-      width: 560,
-      height: 640,
-      mediaKind: "image",
-      fit: "contain",
-      borderRadius: 0,
-      src: testImageUrl,
-      alt: slide.suggested_visual || "Visual",
-      background: "transparent",
+    createShapeElement(`visual-rule-${index}`, 8, {
+      x: textX,
+      y: 730,
+      width: 160,
+      height: 7,
+      shape: "rect",
+      fill: GREEN,
+      stroke: "transparent",
+      strokeWidth: 0,
+      cornerRadius: 8,
     }),
   );
 
@@ -1310,56 +1663,92 @@ function buildProcessScene(slide: Slide, index: number): EditorScene {
 
   const steps = slide.main_content.slice(0, 4).map(stripBulletPrefix);
   const count = steps.length || 1;
-  const totalW = 1400;
-  const gap = 16;
+  const totalW = 1220;
+  const gap = 34;
   const stepW = (totalW - gap * (count - 1)) / count;
+  const cardY = 275;
+  const cardH = 285;
 
   steps.forEach((step, i) => {
-    const sx = 100 + i * (stepW + gap);
+    const sx = 190 + i * (stepW + gap);
+    const accent = i % 2 === 0 ? BLUE_DOT : "#f59e0b";
 
     els.push(
-      createShapeElement(`step-${index}-${i}`, 1 + i * 2, {
+      createShapeElement(`step-card-${index}-${i}`, 1 + i * 6, {
         x: sx,
-        y: 250,
+        y: cardY,
         width: stepW,
-        height: 320,
+        height: cardH,
         shape: "rect",
-        fill: "#f8fafc",
-        stroke: "#e2e8f0",
+        fill: "#ffffff",
+        stroke: CARD_BORDER,
         strokeWidth: 1,
-        cornerRadius: 20,
-        label: `${i + 1}. ${step}`,
-        textColor: "#1e293b",
-        fontSize: 24,
-        fontWeight: 600,
-        textAlign: "left",
+        cornerRadius: 12,
+      }),
+      createShapeElement(`step-accent-${index}-${i}`, 2 + i * 6, {
+        x: sx + 26,
+        y: cardY + 34,
+        width: 42,
+        height: 42,
+        shape: "rect",
+        fill: accent,
+        stroke: "transparent",
+        strokeWidth: 0,
+        cornerRadius: 10,
+      }),
+      createTextElement(`step-num-${index}-${i}`, String(i + 1).padStart(2, "0"), 3 + i * 6, {
+        x: sx + 26,
+        y: cardY + 44,
+        width: 42,
+        height: 24,
+        fontSize: 14,
+        fontWeight: 800,
+        align: "center",
+        color: "#ffffff",
+        lineHeight: 1,
+      }),
+      createTextElement(`step-label-${index}-${i}`, "Etape", 4 + i * 6, {
+        x: sx + 84,
+        y: cardY + 45,
+        width: stepW - 116,
+        height: 22,
+        fontSize: 14,
+        fontWeight: 800,
+        color: "#64748b",
+        lineHeight: 1,
+      }),
+      createTextElement(`step-text-${index}-${i}`, step, 5 + i * 6, {
+        x: sx + 30,
+        y: cardY + 118,
+        width: stepW - 60,
+        height: 116,
+        fontSize: 21,
+        fontWeight: 700,
+        color: "#1e293b",
+        lineHeight: 1.2,
       }),
     );
 
     if (i < steps.length - 1) {
       els.push(
-        createShapeElement(`arrow-${index}-${i}`, 2 + i * 2, {
-          x: sx + stepW - 2,
-          y: 390,
-          width: gap + 4,
-          height: 28,
-          shape: "rect",
-          fill: "#0f766e",
-          cornerRadius: 14,
-          stroke: "transparent",
-          strokeWidth: 0,
-          label: "\u203A",
-          textColor: "#ffffff",
-          fontSize: 18,
+        createTextElement(`arrow-${index}-${i}`, "\u203A", 6 + i * 6, {
+          x: sx + stepW + 7,
+          y: cardY + 126,
+          width: gap - 14,
+          height: 34,
+          fontSize: 28,
           fontWeight: 700,
+          align: "center",
+          color: "#cbd5e1",
         }),
       );
     }
   });
 
+  addFooter(els, index);
+
   return scene(els);
 }
-
 /* ------------------------------------------------------------------ */
 /*  Builder: Problem / Solution                                        */
 /* ------------------------------------------------------------------ */
@@ -1653,6 +2042,14 @@ export function buildEditorSceneForSlide(
 ): EditorScene {
   const cleaned = ct(slide);
   const semantic: SlideSemanticType = resolveSemanticType(cleaned);
-  const builder = BUILDER_MAP[semantic] ?? buildParagraphScene;
-  return finalizeScene(builder(cleaned, index), index, semantic);
+  const builder =
+    semantic !== "cover.title" &&
+    shouldUseImageForSlide(cleaned, semantic) &&
+    !semantic.startsWith("visual.") &&
+    semantic !== "business.product_feature"
+      ? buildImageTextScene
+      : semantic !== "cover.title" && shouldUseImageForSlide(cleaned, semantic)
+      ? buildVisualSplitScene
+      : (BUILDER_MAP[semantic] ?? buildParagraphScene);
+  return finalizeScene(builder(cleaned, index), index, semantic, cleaned);
 }

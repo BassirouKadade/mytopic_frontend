@@ -793,6 +793,55 @@ export function createEditorSceneFromSlide(
   }
 }
 
+function shouldRebuildLegacyGeneratedScene(
+  raw: Partial<EditorScene>,
+  slide: Partial<Slide>,
+): boolean {
+  if (String(raw.version ?? "") === "1.2") return false;
+
+  const semantic = String(slide.semantic_type ?? "");
+  const rebuildableSemantics = new Set([
+    "content.definition",
+    "content.definition_list",
+    "list.pros_cons",
+    "comparison.two_column",
+    "comparison.before_after",
+    "comparison.concepts",
+    "comparison.solutions",
+    "data.kpi",
+    "data.cards",
+    "diagram.process",
+    "diagram.workflow",
+    "business.use_case",
+    "academic.case_study",
+  ]);
+
+  if (!rebuildableSemantics.has(semantic)) return false;
+
+  const elementIds = Array.isArray(raw.elements)
+    ? raw.elements
+        .map((element) =>
+          element && typeof element === "object"
+            ? String((element as Partial<SlideElement>).id ?? "")
+            : "",
+        )
+        .filter(Boolean)
+    : [];
+
+  return elementIds.some((id) =>
+    [
+      "term-",
+      "def-rule-",
+      "compare-list-",
+      "metric-value-",
+      "card-",
+      "step-",
+      "arrow-",
+      "ring-",
+    ].some((prefix) => id.startsWith(prefix)),
+  );
+}
+
 function normalizeEditorScene(
   raw: unknown,
   slide: Partial<Slide>,
@@ -807,6 +856,10 @@ function normalizeEditorScene(
     ? candidate.elements
     : [];
   if (elementsRaw.length === 0) {
+    return createEditorSceneFromSlide(toBuilderSlide(slide, index), index);
+  }
+
+  if (shouldRebuildLegacyGeneratedScene(candidate, slide)) {
     return createEditorSceneFromSlide(toBuilderSlide(slide, index), index);
   }
 

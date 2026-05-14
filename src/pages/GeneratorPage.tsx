@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { usePresentationStore } from "../store/presentationStore";
 import {
-  Layers,
   Sparkles,
   Palette,
   LayoutList,
@@ -12,7 +11,9 @@ import {
   Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AppLogo } from "@/components/AppLogo";
 import { Spinner } from "@/components/ui/spinner";
+import { MultiStepLoader } from "@/components/ui/multi-step-loader";
 import { UserProfileMenu } from "@/components/auth/UserProfileMenu";
 import { motion } from "framer-motion";
 import { SlideThumbnail } from "@/presentation/SlideThumbnail";
@@ -195,6 +196,17 @@ const stagger = {
   visible: { transition: { staggerChildren: 0.06 } },
 };
 
+const generationLoadingStates = [
+  { text: "Analyse du sujet et de l'objectif" },
+  { text: "Construction du plan de presentation" },
+  { text: "Redaction des messages cles" },
+  { text: "Selection des structures de slides" },
+  { text: "Creation de la narration visuelle" },
+  { text: "Harmonisation du style graphique" },
+  { text: "Preparation de l'editeur interactif" },
+  { text: "Finalisation de votre deck" },
+];
+
 export default function GeneratorPage() {
   const [topic, setTopic] = useState("");
   const navigate = useNavigate();
@@ -234,19 +246,20 @@ export default function GeneratorPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col overflow-x-hidden">
+      <MultiStepLoader
+        loadingStates={generationLoadingStates}
+        loading={loading}
+        duration={1500}
+      />
+
       {/* ─── Fixed Header ─── */}
       <header className="fixed top-0 w-full z-50 flex justify-between items-center px-6 md:px-10 h-16 bg-background/90 backdrop-blur-xl border-b border-border/30">
         <div className="flex items-center gap-4">
           <div
-            className="flex items-center gap-3 cursor-pointer py-2 pr-4"
+            className="flex items-center cursor-pointer py-2 pr-4"
             onClick={() => navigate("/")}
           >
-            <div className="size-9 rounded-xl bg-primary flex items-center justify-center shadow-sm shadow-primary/20">
-              <Layers className="size-4 text-primary-foreground" />
-            </div>
-            <span className="text-lg font-semibold italic tracking-tight">
-              MyTopic
-            </span>
+            <AppLogo />
           </div>
 
           <div className="h-5 w-px bg-border/40 mx-2 hidden md:block" />
@@ -328,7 +341,7 @@ export default function GeneratorPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.25, duration: 0.6, ease: easeCurve }}
           >
-            <div className="bg-card rounded-2xl p-6 md:p-7 border border-border/30 shadow-[0_16px_35px_-16px_rgba(0,0,0,0.16)] transition-all duration-500 focus-within:shadow-[0_20px_45px_-18px_rgba(0,0,0,0.22)] focus-within:ring-2 focus-within:ring-primary/15">
+            <div className="rounded-xl border border-border/60 bg-background p-5 transition-colors duration-200 focus-within:border-primary/35 focus-within:ring-1 focus-within:ring-primary/15 md:p-6">
               <textarea
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
@@ -336,16 +349,16 @@ export default function GeneratorPage() {
                 placeholder="Ex : L'intelligence artificielle dans la santé..."
                 rows={3}
                 disabled={loading}
-                className="w-full bg-transparent border-none focus:ring-0 focus:outline-none text-lg leading-relaxed resize-none min-h-24 max-h-40 text-foreground placeholder:text-muted-foreground/40 placeholder:italic disabled:opacity-50 p-1"
+                className="w-full min-h-24 max-h-40 resize-none border-none bg-transparent p-1 text-base leading-relaxed text-foreground placeholder:text-muted-foreground/45 placeholder:italic focus:outline-none focus:ring-0 disabled:opacity-50 md:text-lg"
               />
 
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mt-5 pt-5 border-t border-border/20">
+              <div className="mt-5 flex flex-col justify-between gap-4 border-t border-border/50 pt-4 md:flex-row md:items-center">
                 <div className="flex flex-wrap gap-2.5">
-                  <button className="px-4 py-2 rounded-full bg-muted/50 hover:bg-muted transition-colors text-[10px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                  <button className="flex items-center gap-2 rounded-full border border-border/50 bg-muted/25 px-3.5 py-2 text-[10px] font-mono uppercase tracking-widest text-muted-foreground transition-colors hover:border-border hover:bg-muted/50">
                     <LayoutList className="size-3" />
                     Structure Pro
                   </button>
-                  <button className="px-4 py-2 rounded-full bg-muted/50 hover:bg-muted transition-colors text-[10px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                  <button className="flex items-center gap-2 rounded-full border border-border/50 bg-muted/25 px-3.5 py-2 text-[10px] font-mono uppercase tracking-widest text-muted-foreground transition-colors hover:border-border hover:bg-muted/50">
                     <Palette className="size-3" />
                     Atelier Style
                   </button>
@@ -355,7 +368,7 @@ export default function GeneratorPage() {
                   size="lg"
                   onClick={handleGenerate}
                   disabled={loading || !topic.trim()}
-                  className="px-8 py-5 rounded-xl font-semibold text-sm shadow-lg shadow-primary/15 cursor-pointer transition-all duration-300 hover:scale-[1.01] active:scale-95 disabled:opacity-50 disabled:hover:scale-100 gap-2.5"
+                  className="h-11 gap-2.5 rounded-lg px-6 text-sm font-semibold shadow-none transition-colors duration-200 hover:bg-primary/90 active:bg-primary/95 disabled:opacity-50"
                 >
                   {loading ? (
                     <>

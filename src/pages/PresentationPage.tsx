@@ -1,4 +1,12 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { parseAsInteger, useQueryState } from "nuqs";
 import { TransformComponent, TransformWrapper } from "react-zoom-pan-pinch";
@@ -32,10 +40,13 @@ import {
   Trash2,
   Type,
   Image as ImageIcon,
+  Play,
 } from "lucide-react";
 import { toast } from "sonner";
+import { AnimatePresence, motion } from "framer-motion";
 import { exportToPdf, exportToPptx } from "@/services/exportPresentation";
 
+import { AppLogo } from "@/components/AppLogo";
 import { Button } from "@/components/ui/button";
 import { UserProfileMenu } from "@/components/auth/UserProfileMenu";
 import {
@@ -44,6 +55,8 @@ import {
 } from "@/editor/slideTemplates";
 import { ZoomControls } from "@/editor/ZoomControls";
 import { SLIDE_ASPECT_RATIO } from "@/presentation/primitives";
+import { StaticSceneRenderer } from "@/presentation/StaticSceneRenderer";
+import { SlideThumbnail } from "@/presentation/SlideThumbnail";
 import { cn } from "@/lib/utils";
 import {
   deleteFavoriteImageAsset,
@@ -52,7 +65,7 @@ import {
   type FavoriteImageAsset,
 } from "@/services/api";
 import { usePresentationStore } from "@/store/presentationStore";
-import type { Presentation, SlideElement } from "@/services/api";
+import type { EditorScene, Presentation, SlideElement } from "@/services/api";
 
 const SlideEditorCanvas = lazy(() =>
   import("@/editor/SlideEditorCanvas").then((mod) => ({
@@ -62,9 +75,116 @@ const SlideEditorCanvas = lazy(() =>
 
 const THUMB_ITEM_SIZE = 124;
 type SidebarMode = "templates" | "elements" | "uploads";
+type PresentationTransition = "fade" | "slide" | "zoom" | "lift" | "scale";
+
+const PRESENTATION_TRANSITIONS: PresentationTransition[] = [
+  "fade",
+  "slide",
+  "zoom",
+  "lift",
+  "scale",
+];
 
 function clonePresentation(value: Presentation): Presentation {
   return JSON.parse(JSON.stringify(value)) as Presentation;
+}
+
+function getPresentationTransition(index: number): PresentationTransition {
+  return PRESENTATION_TRANSITIONS[index % PRESENTATION_TRANSITIONS.length];
+}
+
+function getPresentationMotion(
+  transition: PresentationTransition,
+  direction: number,
+) {
+  const side = direction >= 0 ? 1 : -1;
+
+  if (transition === "slide") {
+    return {
+      initial: { opacity: 0, x: 28 * side },
+      animate: { opacity: 1, x: 0 },
+      exit: { opacity: 0, x: -20 * side },
+    };
+  }
+
+  if (transition === "zoom") {
+    return {
+      initial: { opacity: 0, scale: 0.985 },
+      animate: { opacity: 1, scale: 1 },
+      exit: { opacity: 0, scale: 1.01 },
+    };
+  }
+
+  if (transition === "lift") {
+    return {
+      initial: { opacity: 0, y: 18 },
+      animate: { opacity: 1, y: 0 },
+      exit: { opacity: 0, y: -12 },
+    };
+  }
+
+  if (transition === "scale") {
+    return {
+      initial: { opacity: 0, scale: 1.012 },
+      animate: { opacity: 1, scale: 1 },
+      exit: { opacity: 0, scale: 0.99 },
+    };
+  }
+
+  return {
+    initial: { opacity: 0 },
+    animate: { opacity: 1 },
+    exit: { opacity: 0 },
+  };
+}
+
+function PresentationStage({ scene }: { scene: EditorScene }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [scale, setScale] = useState(0);
+
+  useLayoutEffect(() => {
+    const node = containerRef.current;
+    if (!node) return;
+
+    const updateScale = () => {
+      const widthScale = node.clientWidth / scene.width;
+      const heightScale = node.clientHeight / scene.height;
+      setScale(Math.max(0.0001, Math.min(widthScale, heightScale)));
+    };
+
+    updateScale();
+    const observer = new ResizeObserver(updateScale);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [scene.height, scene.width]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="flex h-full w-full items-center justify-center overflow-hidden"
+    >
+      {scale > 0 && (
+        <div
+          className="overflow-hidden bg-white"
+          style={{
+            width: scene.width * scale,
+            height: scene.height * scale,
+          }}
+        >
+          <div
+            style={{
+              width: scene.width,
+              height: scene.height,
+              transform: `scale(${scale})`,
+              transformOrigin: "top left",
+            }}
+          >
+            <StaticSceneRenderer scene={scene} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function PresentationPage() {
@@ -123,6 +243,10 @@ export default function PresentationPage() {
   const [loadingUploads, setLoadingUploads] = useState(false);
   const [savingFavorite, setSavingFavorite] = useState(false);
   const [workspaceZoom, setWorkspaceZoom] = useState(1);
+  const [presentationMode, setPresentationMode] = useState(false);
+  const [presentationControlsVisible, setPresentationControlsVisible] =
+    useState(true);
+  const [presentationDirection, setPresentationDirection] = useState(1);
   const [presentationsReady, setPresentationsReady] = useState(false);
   const [openSlideMenuIndex, setOpenSlideMenuIndex] = useState<number | null>(
     null,
@@ -157,6 +281,8 @@ export default function PresentationPage() {
   const applyingHistoryRef = useRef(false);
   const thumbnailsScrollRef = useRef<HTMLDivElement | null>(null);
   const thumbnailRefs = useRef<Record<number, HTMLButtonElement | null>>({});
+  const presentationModeRef = useRef<HTMLDivElement | null>(null);
+  const presentationControlsTimerRef = useRef<number | null>(null);
 
   const slides = presentation?.slides ?? [];
   const safeCurrentSlide = Math.min(
@@ -165,6 +291,10 @@ export default function PresentationPage() {
   );
   const slide = slides[safeCurrentSlide];
   const scene = slide?.editor_scene;
+  const presentationMotion = getPresentationMotion(
+    getPresentationTransition(safeCurrentSlide),
+    presentationDirection,
+  );
 
   const selectedElementId =
     selectedElementIds[selectedElementIds.length - 1] ?? null;
@@ -282,6 +412,47 @@ export default function PresentationPage() {
     if (ids.length === 0) return false;
     setSelectedElementIds(ids);
     return true;
+  };
+
+  const goToPresentationSlide = (nextIndex: number) => {
+    if (slides.length === 0) return;
+    const boundedIndex = Math.min(Math.max(nextIndex, 0), slides.length - 1);
+    if (boundedIndex === safeCurrentSlide) return;
+    setPresentationDirection(boundedIndex > safeCurrentSlide ? 1 : -1);
+    void setSlideParam(boundedIndex);
+  };
+
+  const startPresentationMode = () => {
+    if (!scene) return;
+    setShowExportMenu(false);
+    setShowImageMenu(false);
+    setOpenSlideMenuIndex(null);
+    setSelectedElementIds([]);
+    setPresentationControlsVisible(true);
+    setPresentationMode(true);
+  };
+
+  const stopPresentationMode = () => {
+    setPresentationMode(false);
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => undefined);
+    }
+  };
+
+  const showPresentationControls = (keepVisible = false) => {
+    setPresentationControlsVisible(true);
+
+    if (presentationControlsTimerRef.current !== null) {
+      window.clearTimeout(presentationControlsTimerRef.current);
+      presentationControlsTimerRef.current = null;
+    }
+
+    if (keepVisible) return;
+
+    presentationControlsTimerRef.current = window.setTimeout(() => {
+      setPresentationControlsVisible(false);
+      presentationControlsTimerRef.current = null;
+    }, 1800);
   };
 
   const restorePresentationSnapshot = (snapshot: Presentation) => {
@@ -747,8 +918,68 @@ export default function PresentationPage() {
   }, []);
 
   useEffect(() => {
+    if (!presentationMode) return;
+
+    const node = presentationModeRef.current;
+    if (node && document.fullscreenElement !== node) {
+      void node.requestFullscreen?.().catch(() => undefined);
+    }
+
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        setPresentationMode(false);
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    showPresentationControls();
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      if (presentationControlsTimerRef.current !== null) {
+        window.clearTimeout(presentationControlsTimerRef.current);
+        presentationControlsTimerRef.current = null;
+      }
+    };
+  }, [presentationMode]);
+
+  useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
       if (!presentation) return;
+
+      if (presentationMode) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          stopPresentationMode();
+          return;
+        }
+        if (
+          event.key === "ArrowRight" ||
+          event.key === "PageDown" ||
+          event.key === " "
+        ) {
+          event.preventDefault();
+          goToPresentationSlide(safeCurrentSlide + 1);
+          return;
+        }
+        if (event.key === "ArrowLeft" || event.key === "PageUp") {
+          event.preventDefault();
+          goToPresentationSlide(safeCurrentSlide - 1);
+          return;
+        }
+        if (event.key === "Home") {
+          event.preventDefault();
+          goToPresentationSlide(0);
+          return;
+        }
+        if (event.key === "End") {
+          event.preventDefault();
+          goToPresentationSlide(presentation.slides.length - 1);
+          return;
+        }
+        return;
+      }
+
       const target = event.target as HTMLElement | null;
       const isTypingContext =
         target?.tagName === "INPUT" ||
@@ -824,6 +1055,7 @@ export default function PresentationPage() {
   }, [
     presentation,
     pasteElementsOnSlide,
+    presentationMode,
     removeElementFromSlide,
     safeCurrentSlide,
     scene,
@@ -953,18 +1185,113 @@ export default function PresentationPage() {
 
   return (
     <div className="h-screen bg-slate-200/60 flex flex-col overflow-hidden">
+      {presentationMode && scene && (
+        <div
+          ref={presentationModeRef}
+          className="fixed inset-0 z-[100] bg-white text-white"
+          onMouseMove={(event) => {
+            const nearBottom = window.innerHeight - event.clientY < 110;
+            showPresentationControls(nearBottom);
+          }}
+          onMouseLeave={() => setPresentationControlsVisible(false)}
+          onTouchStart={(event) => {
+            const touch = event.touches[0];
+            if (!touch) return;
+            showPresentationControls();
+            event.currentTarget.dataset.touchStartX = String(touch.clientX);
+          }}
+          onTouchEnd={(event) => {
+            const startX = Number(event.currentTarget.dataset.touchStartX);
+            delete event.currentTarget.dataset.touchStartX;
+            const touch = event.changedTouches[0];
+            if (!touch || Number.isNaN(startX)) return;
+            const delta = touch.clientX - startX;
+            if (Math.abs(delta) < 48) return;
+            goToPresentationSlide(safeCurrentSlide + (delta < 0 ? 1 : -1));
+          }}
+        >
+          <AnimatePresence initial={false}>
+            <motion.div
+              key={`${safeCurrentSlide}-${slide?.slide_number ?? safeCurrentSlide}`}
+              className="absolute inset-0 z-0"
+              initial={presentationMotion.initial}
+              animate={presentationMotion.animate}
+              exit={presentationMotion.exit}
+              transition={{
+                duration: 0.26,
+                ease: [0.22, 1, 0.36, 1],
+              }}
+            >
+              <PresentationStage scene={scene} />
+            </motion.div>
+          </AnimatePresence>
+
+          <div
+            onMouseEnter={() => showPresentationControls(true)}
+            onMouseLeave={() => showPresentationControls()}
+            className={cn(
+              "absolute inset-x-0 bottom-0 z-30 flex h-16 items-center justify-between bg-black/45 px-5 text-white backdrop-blur-md transition-transform duration-300 ease-out md:px-8",
+              presentationControlsVisible
+                ? "translate-y-0"
+                : "translate-y-full",
+            )}
+          >
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => goToPresentationSlide(safeCurrentSlide - 1)}
+                disabled={safeCurrentSlide <= 0}
+                className="flex size-9 items-center justify-center rounded-full hover:bg-white/12 disabled:opacity-30"
+                aria-label="Slide precedente"
+              >
+                <ChevronLeft className="size-5" />
+              </button>
+              <span className="min-w-14 text-sm font-semibold tabular-nums">
+                {safeCurrentSlide + 1} / {slides.length}
+              </span>
+              <button
+                onClick={() => goToPresentationSlide(safeCurrentSlide + 1)}
+                disabled={safeCurrentSlide >= slides.length - 1}
+                className="flex size-9 items-center justify-center rounded-full hover:bg-white/12 disabled:opacity-30"
+                aria-label="Slide suivante"
+              >
+                <ChevronRight className="size-5" />
+              </button>
+            </div>
+
+            <div className="hidden min-w-0 flex-1 items-center justify-center gap-1.5 px-6 md:flex">
+              {slides.map((item, index) => (
+                <button
+                  key={`${item.slide_number}-${index}`}
+                  onClick={() => goToPresentationSlide(index)}
+                  className={cn(
+                    "h-1.5 rounded-full transition-all",
+                    index === safeCurrentSlide
+                      ? "w-10 bg-white"
+                      : "w-4 bg-white/35 hover:bg-white/70",
+                  )}
+                  aria-label={`Aller a la slide ${index + 1}`}
+                />
+              ))}
+            </div>
+
+            <button
+              onClick={stopPresentationMode}
+              className="rounded-full px-4 py-2 text-sm font-semibold hover:bg-white/12"
+              aria-label="Quitter le mode presentation"
+            >
+              Quitter
+            </button>
+          </div>
+        </div>
+      )}
+
       <header className="shrink-0 flex items-center justify-between px-5 md:px-8 h-14 border-b border-border/40 bg-background z-10">
         <div className="flex items-center gap-6">
           <div
-            className="flex items-center gap-2.5 cursor-pointer px-1 py-1"
+            className="flex items-center cursor-pointer px-1 py-1"
             onClick={() => navigate("/")}
           >
-            <div className="size-9 rounded-lg bg-primary flex items-center justify-center">
-              <Layers className="size-3.5 text-primary-foreground" />
-            </div>
-            <span className="text-base font-semibold italic tracking-tight">
-              MyTopic
-            </span>
+            <AppLogo className="h-11" />
           </div>
 
           <div className="h-5 w-px bg-border/50 hidden md:block" />
@@ -989,6 +1316,17 @@ export default function PresentationPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 rounded-lg cursor-pointer text-sm px-3 py-2 h-auto"
+            onClick={startPresentationMode}
+            disabled={!scene}
+          >
+            <Play className="size-4" />
+            <span className="hidden md:inline">Presentation</span>
+          </Button>
+
           <div className="relative" data-image-menu="true">
             <Button
               variant="outline"
@@ -2072,20 +2410,27 @@ export default function PresentationPage() {
                             className="w-28 rounded-md border border-border/40 bg-white overflow-hidden"
                             style={{ aspectRatio: SLIDE_ASPECT_RATIO }}
                           >
-                            <div className="h-full flex flex-col justify-between p-2.5">
-                              <div className="space-y-0.5">
-                                <div className="h-0.5 w-8 rounded-full bg-slate-700/70" />
-                                <div className="h-0.5 w-12 rounded-full bg-slate-300/80" />
+                            {presentation && item.editor_scene ? (
+                              <SlideThumbnail
+                                presentation={presentation}
+                                slideIndex={index}
+                              />
+                            ) : (
+                              <div className="h-full flex flex-col justify-between p-2.5">
+                                <div className="space-y-0.5">
+                                  <div className="h-0.5 w-8 rounded-full bg-slate-700/70" />
+                                  <div className="h-0.5 w-12 rounded-full bg-slate-300/80" />
+                                </div>
+                                <div className="space-y-0.5">
+                                  <span className="block text-[8px] font-semibold text-slate-700 leading-none">
+                                    {index + 1}
+                                  </span>
+                                  <span className="block text-[8px] leading-none text-slate-500 truncate max-w-24">
+                                    {item.title}
+                                  </span>
+                                </div>
                               </div>
-                              <div className="space-y-0.5">
-                                <span className="block text-[8px] font-semibold text-slate-700 leading-none">
-                                  {index + 1}
-                                </span>
-                                <span className="block text-[8px] leading-none text-slate-500 truncate max-w-24">
-                                  {item.title}
-                                </span>
-                              </div>
-                            </div>
+                            )}
                           </div>
                         </button>
 

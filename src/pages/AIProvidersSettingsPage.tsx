@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import {
   CheckCircle2,
   FlaskConical,
-  Layers,
   Plus,
   Save,
   Server,
@@ -15,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { AppLogo } from "@/components/AppLogo";
 import { UserProfileMenu } from "@/components/auth/UserProfileMenu";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -195,14 +195,9 @@ export default function AIProvidersSettingsPage() {
       <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-border/50 bg-background/90 px-6 backdrop-blur-xl md:px-10">
         <button
           onClick={() => navigate("/generate")}
-          className="flex items-center gap-3"
+          className="flex items-center"
         >
-          <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-            <Layers className="size-4" />
-          </div>
-          <span className="text-lg font-semibold italic tracking-tight">
-            MyTopic
-          </span>
+          <AppLogo />
         </button>
         <div className="flex items-center gap-3">
           <Button variant="ghost" onClick={() => navigate("/generate")}>

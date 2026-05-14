@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { FolderHeart, Layers, Plus } from "lucide-react";
+import { FolderHeart, Plus } from "lucide-react";
 
+import { AppLogo } from "@/components/AppLogo";
 import { Button } from "@/components/ui/button";
 import { UserProfileMenu } from "@/components/auth/UserProfileMenu";
 import { usePresentationStore } from "@/store/presentationStore";
@@ -20,15 +21,10 @@ export default function CollectionsPage() {
       <header className="h-16 border-b border-border/40 bg-background/90 backdrop-blur-xl px-6 md:px-10 flex items-center justify-between sticky top-0 z-30">
         <div className="flex items-center gap-4">
           <div
-            className="flex items-center gap-3 cursor-pointer"
+            className="flex items-center cursor-pointer"
             onClick={() => navigate("/")}
           >
-            <div className="size-9 rounded-xl bg-primary flex items-center justify-center">
-              <Layers className="size-4 text-primary-foreground" />
-            </div>
-            <span className="text-lg font-semibold italic tracking-tight">
-              MyTopic
-            </span>
+            <AppLogo />
           </div>
           <div className="h-5 w-px bg-border/40 hidden md:block" />
           <div className="hidden md:flex items-center gap-2 text-sm text-muted-foreground">

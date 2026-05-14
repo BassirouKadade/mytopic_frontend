@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Layers, Lock, Mail } from "lucide-react";
+import { Lock, Mail } from "lucide-react";
 import axios from "axios";
 import { toast } from "sonner";
 
+import { AppLogo } from "@/components/AppLogo";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -120,10 +121,7 @@ export default function AuthPage() {
         <Card className="w-full border-border bg-card shadow-none">
           <CardHeader className="space-y-4">
             <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-xl border border-primary/20 bg-primary text-primary-foreground">
-                <Layers className="size-4" />
-              </div>
-              <p className="text-xl font-semibold tracking-tight">MyTopic</p>
+              <AppLogo className="h-11" />
             </div>
 
             <div className="flex gap-2 rounded-lg border border-border bg-muted/40 p-1">

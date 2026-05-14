@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import axios from "axios";
-import testImageUrl from "@/assets/image-test.jpeg";
 import type {
   ChartSlideElement,
   ColumnsSlideElement,
@@ -25,6 +24,7 @@ import {
   ensureFixedBackgroundShape,
   FIXED_BG_ELEMENT_ID,
   createSavedPresentation,
+  generateImageFromPrompt,
   generatePresentation,
   getSavedPresentation,
   listSavedPresentations,
@@ -38,6 +38,179 @@ interface ElementPatch {
   height?: number;
   rotation?: number;
   opacity?: number;
+}
+
+const MAX_AUTO_GENERATED_IMAGES = 5;
+
+function hasUsableVisualPrompt(slide: Slide): boolean {
+  const prompt = (slide.suggested_visual ?? "").trim().toLowerCase();
+  return (
+    prompt.length >= 24 &&
+    prompt !== "null" &&
+    prompt !== "none" &&
+    prompt !== "n/a" &&
+    !prompt.includes("no visual") &&
+    !prompt.includes("aucun visuel")
+  );
+}
+
+function shouldAutoGenerateImage(slide: Slide): boolean {
+  const semantic = slide.semantic_type;
+
+  if (slide.slide_type === "agenda" || semantic === "section.agenda") {
+    return false;
+  }
+
+  if (
+    semantic.startsWith("data.") ||
+    semantic.startsWith("diagram.") ||
+    semantic.startsWith("list.") ||
+    semantic === "section.transition" ||
+    semantic === "content.quote" ||
+    semantic === "academic.qa" ||
+    semantic === "closure.conclusion" ||
+    semantic === "closure.thank_you"
+  ) {
+    return false;
+  }
+
+  if (
+    semantic === "cover.title" ||
+    semantic.startsWith("visual.") ||
+    semantic === "business.product_feature"
+  ) {
+    return true;
+  }
+
+  return (
+    hasUsableVisualPrompt(slide) &&
+    (semantic === "content.paragraph" ||
+      semantic === "content.multi_paragraph" ||
+      semantic === "content.info_box" ||
+      semantic === "academic.explanation" ||
+      semantic === "academic.case_study" ||
+      semantic === "business.use_case")
+  );
+}
+
+function getAutoImagePriority(slide: Slide): number {
+  if (slide.semantic_type === "cover.title") return 0;
+  if (slide.semantic_type.startsWith("visual.")) return 1;
+  if (slide.semantic_type === "business.product_feature") return 2;
+  if (hasUsableVisualPrompt(slide)) return 3;
+  return 4;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function stripForbiddenImageText(prompt: string, forbiddenTexts: string[]): string {
+  return forbiddenTexts.reduce((current, text) => {
+    const cleaned = text.trim();
+    if (cleaned.length < 4) return current;
+
+    return current
+      .replace(new RegExp(`["']?${escapeRegExp(cleaned)}["']?`, "gi"), "")
+      .replace(/\b(title|titre|headline|heading|caption|label)\s*:\s*/gi, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }, prompt);
+}
+
+function buildAutoImagePrompt(
+  slide: Slide,
+  topic: string,
+  presentationTitle: string,
+): string {
+  const visual = stripForbiddenImageText((slide.suggested_visual ?? "").trim(), [
+    slide.title,
+    presentationTitle,
+    topic,
+  ]);
+  const base =
+    visual ||
+    "Conceptual editorial image that supports the slide idea without typography.";
+
+  return [
+    "Create an image-only visual for a presentation slide.",
+    "Critical constraint: do not render any words, letters, numbers, title, headline, caption, diagram label, interface text, watermark, or logo inside the image.",
+    "The slide already has its own title outside the image panel, so the image must contain visuals only.",
+    base,
+    "Style: premium editorial presentation visual, clean composition, modern, high contrast, professional.",
+    "Composition: one clear subject, strong focal point, generous negative space, suitable for a slide image panel.",
+    "If the concept normally uses charts, labels, screens, or signs, replace them with abstract shapes, objects, or environmental context without text.",
+  ].join(" ");
+}
+
+function imageSizeForMedia(
+  media: MediaSlideElement,
+): "1024x1024" | "1024x1536" | "1536x1024" {
+  if (media.width > media.height * 1.2) return "1536x1024";
+  if (media.height > media.width * 1.2) return "1024x1536";
+  return "1024x1024";
+}
+
+async function enrichPresentationImages(
+  presentation: Presentation,
+  topic: string,
+): Promise<void> {
+  const candidates = presentation.slides
+    .map((slide, index) => ({ slide, index }))
+    .filter(({ slide }) => shouldAutoGenerateImage(slide))
+    .sort((a, b) => getAutoImagePriority(a.slide) - getAutoImagePriority(b.slide))
+    .slice(0, MAX_AUTO_GENERATED_IMAGES);
+
+  for (const { slide, index } of candidates) {
+    let mediaElement = slide.editor_scene.elements.find(
+      (element): element is MediaSlideElement => element.type === "media",
+    );
+
+    if (!mediaElement) {
+      const imageOnLeft = index % 2 === 1;
+      mediaElement = createMediaElement(
+        `auto-media-${index}`,
+        slide.editor_scene.elements.length,
+        {
+          x:
+            slide.semantic_type === "cover.title"
+              ? 96
+              : imageOnLeft
+                ? 112
+                : 928,
+          y: slide.semantic_type === "cover.title" ? 78 : 92,
+          width: slide.semantic_type === "cover.title" ? 568 : 552,
+          height: slide.semantic_type === "cover.title" ? 744 : 704,
+          mediaKind: "image",
+          src: "",
+          alt: slide.suggested_visual || slide.title,
+          fit: "cover",
+          borderRadius: 18,
+          background: "#e5e7eb",
+        },
+      );
+      slide.editor_scene.elements.push(mediaElement);
+    }
+
+    const prompt = buildAutoImagePrompt(
+      slide,
+      topic,
+      presentation.presentation_title,
+    );
+
+    try {
+      const image = await generateImageFromPrompt(
+        prompt,
+        imageSizeForMedia(mediaElement),
+      );
+      mediaElement.src = image.image_data_url;
+      mediaElement.alt = slide.suggested_visual || slide.title;
+    } catch {
+      slide.editor_scene.elements = slide.editor_scene.elements.filter(
+        (element) => element.id !== mediaElement.id,
+      );
+    }
+  }
 }
 
 interface PresentationState {
@@ -362,49 +535,14 @@ export const usePresentationStore = create<PresentationState>((set, get) => ({
         })),
       };
 
-      enriched.slides.forEach((slide, index) => {
-        const canUseImage =
-          slide.semantic_type === "cover.title" ||
-          slide.semantic_type.startsWith("visual.") ||
-          slide.semantic_type === "business.product_feature";
-
-        const prompt = (slide.suggested_visual ?? "").trim();
-        if (!canUseImage) {
-          slide.editor_scene.elements = slide.editor_scene.elements.filter(
-            (element) => element.type !== "media",
-          );
-          return;
-        }
-
-        let mediaElement = slide.editor_scene.elements.find(
-          (element) => element.type === "media",
+      enriched.slides.forEach((slide) => {
+        if (shouldAutoGenerateImage(slide)) return;
+        slide.editor_scene.elements = slide.editor_scene.elements.filter(
+          (element) => element.type !== "media",
         );
-
-        if (!mediaElement && (prompt || slide.semantic_type === "cover.title")) {
-          mediaElement = createMediaElement(
-            `media-test-${index}`,
-            slide.editor_scene.elements.length,
-            {
-              x: 820,
-              y: 120,
-              width: 680,
-              height: 420,
-              mediaKind: "image",
-              src: testImageUrl,
-              alt: prompt || "Image de test",
-              fit: "cover",
-              borderRadius: 0,
-              background: "#e5e7eb",
-            },
-          );
-          slide.editor_scene.elements.push(mediaElement);
-        }
-
-        if (mediaElement?.type === "media" && !mediaElement.src) {
-          mediaElement.src = testImageUrl;
-          mediaElement.alt = prompt || mediaElement.alt || "Image de test";
-        }
       });
+
+      await enrichPresentationImages(enriched, topic);
 
       const title = enriched.presentation_title || topic;
       const created = await createSavedPresentation(title, enriched);

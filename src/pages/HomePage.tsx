@@ -24,6 +24,7 @@ import {
   Mail,
   Star,
 } from "lucide-react";
+import { AppLogo } from "@/components/AppLogo";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -698,15 +699,10 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto flex items-center justify-between px-6 h-16">
           <div className="flex items-center gap-10">
             <div
-              className="flex items-center gap-2.5 cursor-pointer"
+              className="flex items-center cursor-pointer"
               onClick={() => navigate("/")}
             >
-              <div className="size-9 rounded-xl bg-primary flex items-center justify-center shadow-md shadow-primary/25">
-                <Layers className="size-4.5 text-primary-foreground" />
-              </div>
-              <span className="text-[17px] font-bold tracking-tight">
-                MyTopic
-              </span>
+              <AppLogo />
             </div>
 
             <div className="hidden lg:flex items-center gap-7">
@@ -1696,13 +1692,8 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-10">
             <div className="col-span-2">
-              <div className="flex items-center gap-2.5 mb-4">
-                <div className="size-9 rounded-xl bg-primary flex items-center justify-center shadow-md shadow-primary/30">
-                  <Layers className="size-4.5 text-primary-foreground" />
-                </div>
-                <span className="text-base font-bold tracking-tight">
-                  MyTopic
-                </span>
+              <div className="mb-4">
+                <AppLogo />
               </div>
               <p className="text-sm text-background/60 leading-relaxed mb-5 max-w-xs">
                 Studio IA éditorial pour les équipes modernes. Conçu avec intention.
